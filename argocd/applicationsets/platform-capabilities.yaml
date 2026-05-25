@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-capabilities
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - team: database
+            chart: team-database
+            revision: "1.*"
+          - team: cache
+            chart: team-cache
+            revision: "1.*"
+          - team: pubsub
+            chart: team-pubsub
+            revision: "1.*"
+          - team: application
+            chart: application-rgd
+            revision: "2.*"
+  template:
+    metadata:
+      name: "capability-{{team}}"
+    spec:
+      project: default
+      source:
+        chart: "{{chart}}"
+        repoURL: "${ECR_REGISTRY}/${PROJECT}/charts"
+        targetRevision: "{{revision}}"
+        helm:
+          valuesObject:
+            defaults:
+              clusterName: platform-control-plane-cluster
+              dbSubnetGroupName: platform-db-subnets
+              cacheSubnetGroupName: platform-cache-subnets
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: platform-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

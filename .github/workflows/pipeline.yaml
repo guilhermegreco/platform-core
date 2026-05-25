@@ -1,0 +1,56 @@
+name: Platform Core Pipeline
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'charts/**'
+      - 'terraform/**'
+  pull_request:
+    paths:
+      - 'charts/**'
+      - 'terraform/**'
+
+env:
+  ECR_REGISTRY: 279051970617.dkr.ecr.us-east-1.amazonaws.com
+  PROJECT: plat-cp
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint charts/workload-rgd
+      - run: helm lint charts/tenant
+
+  terraform-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: |
+          cd terraform/poc
+          terraform init -backend=false
+          terraform validate
+
+  publish:
+    needs: [lint, terraform-validate]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ECR_PUSH_ROLE }}
+          aws-region: us-east-1
+      - uses: azure/setup-helm@v4
+      - run: |
+          aws ecr get-login-password | helm registry login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+
+          helm package charts/workload-rgd
+          VERSION=$(yq '.version' charts/workload-rgd/Chart.yaml)
+          helm push workload-rgd-${VERSION}.tgz oci://${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}/charts
+
+          helm package charts/tenant
+          VERSION=$(yq '.version' charts/tenant/Chart.yaml)
+          helm push tenant-${VERSION}.tgz oci://${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}/charts

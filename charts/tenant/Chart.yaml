@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tenant
+version: 1.0.0
+appVersion: "1.0.0"
+description: Tenant provisioning - creates namespaces, RBAC, quotas, and network policies per team

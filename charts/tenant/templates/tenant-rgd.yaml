@@ -1,0 +1,122 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: tenant.kro.run
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: Tenant
+    spec:
+      team: string
+      environments: "[]string"
+      quotas:
+        maxCpu: string | default="8"
+        maxMemory: string | default="16Gi"
+        maxWorkloads: string | default={{ .Values.defaults.maxWorkloads | quote }}
+        maxDatabases: string | default={{ .Values.defaults.maxDatabases | quote }}
+        maxCaches: string | default={{ .Values.defaults.maxCaches | quote }}
+    status:
+      ready: "true"
+
+  resources:
+    # Namespace per environment
+    - id: namespaces
+      forEach:
+        item: env
+        collection: ${schema.spec.environments}
+      template:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: team-${schema.spec.team}-${env}
+          labels:
+            platform.io/team: ${schema.spec.team}
+            platform.io/environment: ${env}
+            platform.io/managed-by: tenant-controller
+
+    # ResourceQuota per namespace
+    - id: quotas
+      forEach:
+        item: env
+        collection: ${schema.spec.environments}
+      template:
+        apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: team-quota
+          namespace: team-${schema.spec.team}-${env}
+        spec:
+          hard:
+            requests.cpu: ${schema.spec.quotas.maxCpu}
+            requests.memory: ${schema.spec.quotas.maxMemory}
+            count/workloads.kro.run: ${schema.spec.quotas.maxWorkloads}
+            count/databases.kro.run: ${schema.spec.quotas.maxDatabases}
+            count/caches.kro.run: ${schema.spec.quotas.maxCaches}
+
+    # Role for workload management
+    - id: roles
+      forEach:
+        item: env
+        collection: ${schema.spec.environments}
+      template:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: Role
+        metadata:
+          name: workload-manager
+          namespace: team-${schema.spec.team}-${env}
+        rules:
+          - apiGroups: ["kro.run"]
+            resources: ["workloads"]
+            verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+          - apiGroups: ["kro.run"]
+            resources: ["databases", "caches", "eventbuses"]
+            verbs: ["get", "list", "watch"]
+          - apiGroups: [""]
+            resources: ["pods", "services", "pods/log"]
+            verbs: ["get", "list", "watch"]
+          - apiGroups: ["apps"]
+            resources: ["deployments"]
+            verbs: ["get", "list", "watch"]
+
+    # RoleBinding for team group
+    - id: rolebindings
+      forEach:
+        item: env
+        collection: ${schema.spec.environments}
+      template:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: RoleBinding
+        metadata:
+          name: workload-managers
+          namespace: team-${schema.spec.team}-${env}
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: Role
+          name: workload-manager
+        subjects:
+          - kind: Group
+            name: team-${schema.spec.team}
+            apiGroup: rbac.authorization.k8s.io
+
+    # NetworkPolicy (deny ingress from other teams)
+    - id: netpol
+      forEach:
+        item: env
+        collection: ${schema.spec.environments}
+      template:
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        metadata:
+          name: deny-cross-team
+          namespace: team-${schema.spec.team}-${env}
+        spec:
+          podSelector: {}
+          policyTypes: ["Ingress"]
+          ingress:
+            - from:
+                - namespaceSelector:
+                    matchLabels:
+                      platform.io/team: ${schema.spec.team}
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: platform-system

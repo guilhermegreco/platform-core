@@ -1,0 +1,38 @@
+apiVersion: kro.run/v1alpha1
+kind: Workload
+metadata:
+  name: order-processor
+  namespace: team-commerce-prod
+spec:
+  name: order-processor
+  team: commerce
+
+  containers:
+    main:
+      image: order-processor:v1.3
+      command: ["./worker", "--mode=consumer"]
+      variables:
+        LOG_LEVEL: "info"
+      resources:
+        cpu: "1000m"
+        memory: "1Gi"
+
+  service:
+    ports:
+      http:
+        port: 9090
+
+  resources:
+    database:
+      type: postgres
+      properties:
+        size: small
+    cache:
+      type: redis
+      properties:
+        size: small
+    events:
+      type: pubsub
+      properties:
+        pattern: fanout
+        dlq: true
