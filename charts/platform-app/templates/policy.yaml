@@ -1,12 +1,17 @@
 {{- $statements := list }}
+{{- $account := .Values.accountId }}
+{{- $region := .Values.region }}
+{{- $name := .Values.name }}
 {{- if .Values.database.enabled }}
-{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["rds-db:connect","secretsmanager:GetSecretValue","secretsmanager:DescribeSecret"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` .Values.name) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["rds-db:connect"],"Resource":"arn:aws:rds-db:%s:%s:dbuser:*/*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` $region $account $name) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["secretsmanager:GetSecretValue","secretsmanager:DescribeSecret"],"Resource":"arn:aws:secretsmanager:%s:%s:secret:rds!*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` $region $account $name) }}
 {{- end }}
 {{- if .Values.events.enabled }}
-{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["sqs:SendMessage","sqs:ReceiveMessage","sqs:DeleteMessage","sqs:GetQueueAttributes","sns:Publish"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` .Values.name) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["sqs:SendMessage","sqs:ReceiveMessage","sqs:DeleteMessage","sqs:GetQueueAttributes"],"Resource":"arn:aws:sqs:%s:%s:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` $region $account $name) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["sns:Publish"],"Resource":"arn:aws:sns:%s:%s:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` $region $account $name) }}
 {{- end }}
 {{- if .Values.cache.enabled }}
-{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["elasticache:Connect"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` .Values.name) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["elasticache:Connect"],"Resource":"arn:aws:elasticache:%s:%s:replicationgroup:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` $region $account $name) }}
 {{- end }}
 {{- if $statements }}
 apiVersion: iam.services.k8s.aws/v1alpha1
