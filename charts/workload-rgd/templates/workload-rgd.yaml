@@ -10,6 +10,7 @@ spec:
       name: string
       namespace: string | default="default"
       team: string | default="default"
+      clusterName: string | default={{ .Values.defaults.clusterName | quote }}
 
       containers:
         main:
@@ -29,27 +30,32 @@ spec:
           public: boolean | default=false
           host: string | default=""
 
-      # Resources are OPAQUE — the Workload RGD does not enumerate team fields.
-      # Each team's RGD defines its own schema. The Workload just forwards properties.
       resources:
         database:
           type: string | default=""
-          properties: "map[string]any"
+          properties:
+            engine: string | default="postgres"
+            size: string | default="small"
+            highAvailability: boolean | default=false
         cache:
           type: string | default=""
-          properties: "map[string]any"
+          properties:
+            engine: string | default="redis"
+            size: string | default="small"
         events:
           type: string | default=""
-          properties: "map[string]any"
+          properties:
+            pattern: string | default="fanout"
+            dlq: boolean | default=true
 
     status:
       replicas: ${deployment.status.availableReplicas}
       url: ${service.metadata.name}
+      roleArn: ${role.status.ackResourceMetadata.arn}
       resources:
         database:
           host: ${database.status.endpoint}
           port: ${database.status.port}
-          secret: ${database.status.secretName}
         cache:
           host: ${cache.status.endpoint}
           port: ${cache.status.port}
@@ -70,8 +76,45 @@ spec:
             platform.io/team: ${schema.spec.team}
             platform.io/workload: ${schema.spec.name}
 
-    # === Database (conditional) ===
-    # Properties are passed through directly — team RGD validates them
+    # === IAM Role (one per workload — all policies attach here) ===
+    - id: role
+      readyWhen:
+        - ${has(role.status.ackResourceMetadata.arn)}
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Role
+        metadata:
+          name: ${schema.spec.name}-role
+          namespace: ${schema.spec.namespace}
+          labels:
+            platform.io/team: ${schema.spec.team}
+        spec:
+          name: ${schema.spec.name}-role
+          assumeRolePolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": { "Service": "pods.eks.amazonaws.com" },
+                "Action": ["sts:AssumeRole", "sts:TagSession"]
+              }]
+            }
+
+    # === Pod Identity Association (one per workload) ===
+    - id: podidentity
+      template:
+        apiVersion: eks.services.k8s.aws/v1alpha1
+        kind: PodIdentityAssociation
+        metadata:
+          name: ${schema.spec.name}-pod-identity
+          namespace: ${schema.spec.namespace}
+        spec:
+          clusterName: ${schema.spec.clusterName}
+          namespace: ${schema.spec.namespace}
+          serviceAccount: ${schema.spec.name}-sa
+          roleARN: ${role.status.ackResourceMetadata.arn}
+
+    # === Database (conditional) — passes roleArn for policy attachment ===
     - id: database
       includeWhen:
         - ${schema.spec.resources.database.type != ""}
@@ -85,7 +128,13 @@ spec:
           namespace: ${schema.spec.namespace}
           labels:
             platform.io/team: ${schema.spec.team}
-        spec: '${merge(schema.spec.resources.database.properties, {"name": schema.spec.name, "namespace": schema.spec.namespace, "serviceAccount": schema.spec.name + "-sa"})}'
+        spec:
+          name: ${schema.spec.name}
+          namespace: ${schema.spec.namespace}
+          engine: ${schema.spec.resources.database.properties.engine}
+          size: ${schema.spec.resources.database.properties.size}
+          highAvailability: ${schema.spec.resources.database.properties.highAvailability}
+          roleName: ${schema.spec.name}-role
 
     # === Cache (conditional) ===
     - id: cache
@@ -101,9 +150,13 @@ spec:
           namespace: ${schema.spec.namespace}
           labels:
             platform.io/team: ${schema.spec.team}
-        spec: '${merge(schema.spec.resources.cache.properties, {"name": schema.spec.name, "namespace": schema.spec.namespace})}'
+        spec:
+          name: ${schema.spec.name}
+          namespace: ${schema.spec.namespace}
+          engine: ${schema.spec.resources.cache.properties.engine}
+          size: ${schema.spec.resources.cache.properties.size}
 
-    # === EventBus (conditional) ===
+    # === EventBus (conditional) — passes roleArn for policy attachment ===
     - id: eventbus
       includeWhen:
         - ${schema.spec.resources.events.type != ""}
@@ -117,7 +170,12 @@ spec:
           namespace: ${schema.spec.namespace}
           labels:
             platform.io/team: ${schema.spec.team}
-        spec: '${merge(schema.spec.resources.events.properties, {"name": schema.spec.name, "namespace": schema.spec.namespace, "serviceAccount": schema.spec.name + "-sa"})}'
+        spec:
+          name: ${schema.spec.name}
+          namespace: ${schema.spec.namespace}
+          type: ${schema.spec.resources.events.properties.pattern}
+          dlq: ${schema.spec.resources.events.properties.dlq}
+          roleName: ${schema.spec.name}-role
 
     # === Deployment ===
     - id: deployment
@@ -155,19 +213,17 @@ spec:
                       memory: ${schema.spec.containers.main.resources.memory}
                   env:
                     - name: DATABASE_HOST
-                      value: ${schema.spec.resources.database.type != "" ? database.status.endpoint : ""}
+                      value: '${schema.spec.resources.database.type != "" ? database.status.endpoint : ""}'
                     - name: DATABASE_PORT
-                      value: ${schema.spec.resources.database.type != "" ? string(database.status.port) : ""}
-                    - name: DATABASE_SECRET
-                      value: ${schema.spec.resources.database.type != "" ? database.status.secretName : ""}
+                      value: '${schema.spec.resources.database.type != "" ? string(database.status.port) : ""}'
                     - name: CACHE_HOST
-                      value: ${schema.spec.resources.cache.type != "" ? cache.status.endpoint : ""}
+                      value: '${schema.spec.resources.cache.type != "" ? cache.status.endpoint : ""}'
                     - name: CACHE_PORT
-                      value: ${schema.spec.resources.cache.type != "" ? string(cache.status.port) : ""}
+                      value: '${schema.spec.resources.cache.type != "" ? string(cache.status.port) : ""}'
                     - name: EVENTS_TOPIC_ARN
-                      value: ${schema.spec.resources.events.type != "" ? eventbus.status.topicArn : ""}
+                      value: '${schema.spec.resources.events.type != "" ? eventbus.status.topicArn : ""}'
                     - name: EVENTS_QUEUE_URL
-                      value: ${schema.spec.resources.events.type != "" ? eventbus.status.queueUrl : ""}
+                      value: '${schema.spec.resources.events.type != "" ? eventbus.status.queueUrl : ""}'
 
     # === Service ===
     - id: service

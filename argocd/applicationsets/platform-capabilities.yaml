@@ -31,7 +31,7 @@ spec:
         helm:
           valuesObject:
             defaults:
-              clusterName: platform-control-plane-cluster
+              clusterName: plat-cp-cluster
               dbSubnetGroupName: platform-db-subnets
               cacheSubnetGroupName: platform-cache-subnets
       destination:

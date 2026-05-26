@@ -194,3 +194,8 @@ resource "aws_iam_role_policy_attachment" "ack_iam" {
   role       = aws_iam_role.ack.name
   policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"
 }
+
+resource "aws_iam_role_policy_attachment" "ack_secretsmanager" {
+  role       = aws_iam_role.ack.name
+  policy_arn = "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+}

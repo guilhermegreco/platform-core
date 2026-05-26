@@ -1,2 +1,2 @@
 defaults:
-  clusterName: "platform-control-plane-cluster"
+  clusterName: "plat-cp-cluster"
