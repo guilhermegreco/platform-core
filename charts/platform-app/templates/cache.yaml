@@ -1,0 +1,15 @@
+{{- if .Values.cache.enabled }}
+apiVersion: kro.run/v1alpha1
+kind: Cache
+metadata:
+  name: {{ .Values.name }}-cache
+  namespace: {{ .Values.namespace }}
+  labels:
+    platform.io/team: {{ .Values.team }}
+    platform.io/workload: {{ .Values.name }}
+spec:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  engine: {{ .Values.cache.engine }}
+  size: {{ .Values.cache.size }}
+{{- end }}

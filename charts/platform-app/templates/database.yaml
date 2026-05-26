@@ -1,0 +1,16 @@
+{{- if .Values.database.enabled }}
+apiVersion: kro.run/v1alpha1
+kind: Database
+metadata:
+  name: {{ .Values.name }}-db
+  namespace: {{ .Values.namespace }}
+  labels:
+    platform.io/team: {{ .Values.team }}
+    platform.io/workload: {{ .Values.name }}
+spec:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  engine: {{ .Values.database.engine }}
+  size: {{ .Values.database.size }}
+  highAvailability: {{ .Values.database.highAvailability }}
+{{- end }}

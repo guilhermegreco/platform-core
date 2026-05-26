@@ -1,0 +1,5 @@
+apiVersion: v2
+name: platform-app
+version: 1.0.0
+description: Developer application chart — Score-like DSL for platform workloads
+type: application

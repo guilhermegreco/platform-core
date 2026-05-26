@@ -1,0 +1,23 @@
+apiVersion: iam.services.k8s.aws/v1alpha1
+kind: Role
+metadata:
+  name: {{ .Values.name }}-role
+  namespace: {{ .Values.namespace }}
+  labels:
+    platform.io/team: {{ .Values.team }}
+    platform.io/workload: {{ .Values.name }}
+spec:
+  name: {{ .Values.name }}-role
+  assumeRolePolicyDocument: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [{
+        "Effect": "Allow",
+        "Principal": { "Service": "pods.eks.amazonaws.com" },
+        "Action": ["sts:AssumeRole", "sts:TagSession"]
+      }]
+    }
+  {{- if or .Values.database.enabled .Values.events.enabled .Values.cache.enabled }}
+  policies:
+    - {{ printf "arn:aws:iam::%s:policy/%s-workload-policy" .Values.accountId .Values.name }}
+  {{- end }}

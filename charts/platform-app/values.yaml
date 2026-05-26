@@ -1,0 +1,27 @@
+name: my-app
+team: default
+namespace: default
+
+image: nginx:latest
+port: 8080
+replicas: 2
+
+clusterName: plat-cp-cluster
+accountId: "279051970617"
+region: us-east-1
+
+database:
+  enabled: false
+  size: small
+  engine: postgres
+  highAvailability: false
+
+cache:
+  enabled: false
+  size: small
+  engine: redis
+
+events:
+  enabled: false
+  pattern: fanout
+  dlq: true

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    platform.io/team: {{ .Values.team }}
+    platform.io/workload: {{ .Values.name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Values.name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.port }}
+      protocol: TCP

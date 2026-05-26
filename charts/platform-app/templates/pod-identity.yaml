@@ -1,0 +1,13 @@
+apiVersion: eks.services.k8s.aws/v1alpha1
+kind: PodIdentityAssociation
+metadata:
+  name: {{ .Values.name }}-pod-identity
+  namespace: {{ .Values.namespace }}
+  labels:
+    platform.io/team: {{ .Values.team }}
+    platform.io/workload: {{ .Values.name }}
+spec:
+  clusterName: {{ .Values.clusterName }}
+  namespace: {{ .Values.namespace }}
+  serviceAccount: {{ .Values.name }}-sa
+  roleARN: {{ printf "arn:aws:iam::%s:role/%s-role" .Values.accountId .Values.name }}

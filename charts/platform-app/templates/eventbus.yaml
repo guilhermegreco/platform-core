@@ -1,0 +1,15 @@
+{{- if .Values.events.enabled }}
+apiVersion: kro.run/v1alpha1
+kind: EventBus
+metadata:
+  name: {{ .Values.name }}-events
+  namespace: {{ .Values.namespace }}
+  labels:
+    platform.io/team: {{ .Values.team }}
+    platform.io/workload: {{ .Values.name }}
+spec:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  type: {{ .Values.events.pattern }}
+  dlq: {{ .Values.events.dlq }}
+{{- end }}

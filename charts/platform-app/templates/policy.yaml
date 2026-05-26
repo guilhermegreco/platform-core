@@ -1,0 +1,27 @@
+{{- $statements := list }}
+{{- if .Values.database.enabled }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["rds-db:connect","secretsmanager:GetSecretValue","secretsmanager:DescribeSecret"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` .Values.name) }}
+{{- end }}
+{{- if .Values.events.enabled }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["sqs:SendMessage","sqs:ReceiveMessage","sqs:DeleteMessage","sqs:GetQueueAttributes","sns:Publish"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` .Values.name) }}
+{{- end }}
+{{- if .Values.cache.enabled }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["elasticache:Connect"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s"}}}` .Values.name) }}
+{{- end }}
+{{- if $statements }}
+apiVersion: iam.services.k8s.aws/v1alpha1
+kind: Policy
+metadata:
+  name: {{ .Values.name }}-workload-policy
+  namespace: {{ .Values.namespace }}
+  labels:
+    platform.io/team: {{ .Values.team }}
+    platform.io/workload: {{ .Values.name }}
+spec:
+  name: {{ .Values.name }}-workload-policy
+  policyDocument: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [{{ join "," $statements }}]
+    }
+{{- end }}
