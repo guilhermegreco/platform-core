@@ -1,4 +1,5 @@
 {{- if .Values.events.enabled }}
+{{- if ne (default "default" .Values.events.class) "existing" }}
 apiVersion: kro.run/v1alpha1
 kind: EventBus
 metadata:
@@ -12,4 +13,5 @@ spec:
   namespace: {{ .Values.namespace }}
   type: {{ .Values.events.pattern }}
   dlq: {{ .Values.events.dlq }}
+{{- end }}
 {{- end }}

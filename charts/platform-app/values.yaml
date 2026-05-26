@@ -12,16 +12,22 @@ region: us-east-1
 
 database:
   enabled: false
+  class: default    # "default" = provision new, "existing" = bind to shared resource
+  id: ""            # logical name of the shared resource (only used when class: existing)
   size: small
   engine: postgres
   highAvailability: false
 
 cache:
   enabled: false
+  class: default
+  id: ""
   size: small
   engine: redis
 
 events:
   enabled: false
+  class: default
+  id: ""
   pattern: fanout
   dlq: true

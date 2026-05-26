@@ -1,4 +1,5 @@
 {{- if .Values.database.enabled }}
+{{- if ne (default "default" .Values.database.class) "existing" }}
 apiVersion: kro.run/v1alpha1
 kind: Database
 metadata:
@@ -13,4 +14,5 @@ spec:
   engine: {{ .Values.database.engine }}
   size: {{ .Values.database.size }}
   highAvailability: {{ .Values.database.highAvailability }}
+{{- end }}
 {{- end }}

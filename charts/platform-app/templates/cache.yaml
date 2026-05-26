@@ -1,4 +1,5 @@
 {{- if .Values.cache.enabled }}
+{{- if ne (default "default" .Values.cache.class) "existing" }}
 apiVersion: kro.run/v1alpha1
 kind: Cache
 metadata:
@@ -12,4 +13,5 @@ spec:
   namespace: {{ .Values.namespace }}
   engine: {{ .Values.cache.engine }}
   size: {{ .Values.cache.size }}
+{{- end }}
 {{- end }}

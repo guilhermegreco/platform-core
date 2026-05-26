@@ -30,43 +30,46 @@ spec:
               memory: 256Mi
           env:
             {{- if .Values.database.enabled }}
+            {{- $dbSecret := ternary (printf "%s-conn" .Values.database.id) (printf "%s-db-conn" .Values.name) (eq (default "default" .Values.database.class) "existing") }}
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.name }}-db-conn
+                  name: {{ $dbSecret }}
                   key: host
             - name: DATABASE_PORT
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.name }}-db-conn
+                  name: {{ $dbSecret }}
                   key: port
             - name: DATABASE_USER
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.name }}-db-conn
+                  name: {{ $dbSecret }}
                   key: username
             {{- end }}
             {{- if .Values.events.enabled }}
+            {{- $eventsSecret := ternary (printf "%s-conn" .Values.events.id) (printf "%s-events-conn" .Values.name) (eq (default "default" .Values.events.class) "existing") }}
             - name: EVENTS_TOPIC_ARN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.name }}-events-conn
+                  name: {{ $eventsSecret }}
                   key: topicArn
             - name: EVENTS_QUEUE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.name }}-events-conn
+                  name: {{ $eventsSecret }}
                   key: queueUrl
             {{- end }}
             {{- if .Values.cache.enabled }}
+            {{- $cacheSecret := ternary (printf "%s-conn" .Values.cache.id) (printf "%s-cache-conn" .Values.name) (eq (default "default" .Values.cache.class) "existing") }}
             - name: CACHE_HOST
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.name }}-cache-conn
+                  name: {{ $cacheSecret }}
                   key: host
             - name: CACHE_PORT
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.name }}-cache-conn
+                  name: {{ $cacheSecret }}
                   key: port
             {{- end }}
