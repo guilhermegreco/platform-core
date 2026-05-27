@@ -78,3 +78,18 @@ runs:
           --set "deployment.extraEnvVars[3].name=AWS_DEFAULT_REGION" \
           --set "deployment.extraEnvVars[3].value=${{ inputs.aws-region }}" \
           --wait --timeout 120s
+
+    - name: Install Chainsaw
+      shell: bash
+      run: |
+        CHAINSAW_VERSION=v0.2.14
+        curl -sL https://github.com/kyverno/chainsaw/releases/download/${CHAINSAW_VERSION}/chainsaw_linux_amd64.tar.gz | tar xz
+        sudo mv chainsaw /usr/local/bin/
+        echo "CHAINSAW_VERSION=${CHAINSAW_VERSION}" >> $GITHUB_ENV
+
+    - name: Install kubeconform
+      shell: bash
+      run: |
+        KUBECONFORM_VERSION=v0.6.7
+        curl -sL https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz | tar xz
+        sudo mv kubeconform /usr/local/bin/
