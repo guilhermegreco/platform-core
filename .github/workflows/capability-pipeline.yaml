@@ -282,14 +282,14 @@ jobs:
 
       - name: Bump staging version
         run: |
-          VERSION="${{ needs.publish.outputs.version }}"
+          VERSION=$(echo "${{ needs.publish.outputs.version }}" | sed "s/^v//")
           echo "Bumping team-${{ inputs.capability-name }} to $VERSION"
           yq -i '(.dependencies[] | select(.name == "team-${{ inputs.capability-name }}")).version = "'$VERSION'"' argocd/staging/Chart.yaml
           cat argocd/staging/Chart.yaml
 
       - name: Create and auto-merge PR
         run: |
-          VERSION="${{ needs.publish.outputs.version }}"
+          VERSION=$(echo "${{ needs.publish.outputs.version }}" | sed "s/^v//")
           git config user.name "semver-bumper[bot]"
           git config user.email "semver-bumper[bot]@users.noreply.github.com"
           git checkout -b bump-staging-${{ inputs.capability-name }}-$VERSION
