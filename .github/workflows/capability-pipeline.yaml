@@ -254,7 +254,8 @@ jobs:
         run: |
           aws ecr get-login-password | helm registry login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
           helm package ${{ inputs.chart-path }} --version $VERSION
-          helm push team-${{ inputs.capability-name }}-${VERSION}.tgz oci://${{ vars.ECR_REGISTRY }}/${{ vars.PROJECT }}/charts
+          CHART_NAME=$(yq '.name' ${{ inputs.chart-path }}/Chart.yaml)
+          helm push ${CHART_NAME}-${VERSION}.tgz oci://${{ vars.ECR_REGISTRY }}/${{ vars.PROJECT }}/charts
 
       - name: Tag release
         run: |
