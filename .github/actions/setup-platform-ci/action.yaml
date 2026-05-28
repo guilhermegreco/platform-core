@@ -6,6 +6,10 @@ inputs:
     description: "Test mode: 'fake' (Tier 1, CRDs only) or 'real' (Tier 2, full ACK controllers)"
     required: false
     default: "fake"
+  ack-controllers:
+    description: "Comma-separated list of ACK controllers to install in real mode (rds, elasticache, sns, sqs)"
+    required: false
+    default: "rds"
   aws-region:
     description: "AWS region for ACK controllers"
     required: false
@@ -60,24 +64,27 @@ runs:
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/sns-controller/v${{ env.ACK_SNS_CHART_VERSION }}/config/crd/bases/sns.services.k8s.aws_subscriptions.yaml
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/sqs-controller/v${{ env.ACK_SQS_CHART_VERSION }}/config/crd/bases/sqs.services.k8s.aws_queues.yaml
 
-    - name: Install ACK RDS controller (real mode)
+    - name: Install ACK controllers (real mode)
       if: inputs.mode == 'real'
       shell: bash
       run: |
-        helm install ack-rds oci://public.ecr.aws/aws-controllers-k8s/rds-chart \
-          --version ${{ env.ACK_RDS_CHART_VERSION }} \
-          --namespace ack-system \
-          --create-namespace \
-          --set aws.region=${{ inputs.aws-region }} \
-          --set "deployment.extraEnvVars[0].name=AWS_ACCESS_KEY_ID" \
-          --set "deployment.extraEnvVars[0].value=$AWS_ACCESS_KEY_ID" \
-          --set "deployment.extraEnvVars[1].name=AWS_SECRET_ACCESS_KEY" \
-          --set "deployment.extraEnvVars[1].value=$AWS_SECRET_ACCESS_KEY" \
-          --set "deployment.extraEnvVars[2].name=AWS_SESSION_TOKEN" \
-          --set "deployment.extraEnvVars[2].value=$AWS_SESSION_TOKEN" \
-          --set "deployment.extraEnvVars[3].name=AWS_DEFAULT_REGION" \
-          --set "deployment.extraEnvVars[3].value=${{ inputs.aws-region }}" \
-          --wait --timeout 120s
+        IFS=',' read -ra CONTROLLERS <<< "${{ inputs.ack-controllers }}"
+        for ctrl in "${CONTROLLERS[@]}"; do
+          echo "Installing ACK $ctrl controller..."
+          helm install ack-$ctrl oci://public.ecr.aws/aws-controllers-k8s/${ctrl}-chart \
+            --namespace ack-system \
+            --create-namespace \
+            --set aws.region=${{ inputs.aws-region }} \
+            --set "deployment.extraEnvVars[0].name=AWS_ACCESS_KEY_ID" \
+            --set "deployment.extraEnvVars[0].value=$AWS_ACCESS_KEY_ID" \
+            --set "deployment.extraEnvVars[1].name=AWS_SECRET_ACCESS_KEY" \
+            --set "deployment.extraEnvVars[1].value=$AWS_SECRET_ACCESS_KEY" \
+            --set "deployment.extraEnvVars[2].name=AWS_SESSION_TOKEN" \
+            --set "deployment.extraEnvVars[2].value=$AWS_SESSION_TOKEN" \
+            --set "deployment.extraEnvVars[3].name=AWS_DEFAULT_REGION" \
+            --set "deployment.extraEnvVars[3].value=${{ inputs.aws-region }}" \
+            --wait --timeout 120s
+        done
 
     - name: Install Chainsaw
       shell: bash

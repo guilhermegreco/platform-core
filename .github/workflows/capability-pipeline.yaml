@@ -1,0 +1,246 @@
+name: Capability Pipeline
+on:
+  workflow_call:
+    inputs:
+      chart-path:
+        required: true
+        type: string
+        default: chart
+      tests-path:
+        required: true
+        type: string
+        default: tests/tier2
+      capability-name:
+        required: true
+        type: string
+      ack-controllers:
+        required: true
+        type: string
+        default: "rds"
+      assert-timeout:
+        required: false
+        type: string
+        default: "15m"
+      delete-timeout:
+        required: false
+        type: string
+        default: "5m"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint ${{ inputs.chart-path }}
+      - run: helm template test ${{ inputs.chart-path }} > /dev/null
+
+  tier1:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Setup platform CI (fake)
+        uses: guilhermegreco/platform-core/.github/actions/setup-platform-ci@main
+        with:
+          mode: fake
+      - name: Deploy RGD
+        run: |
+          helm template test ${{ inputs.chart-path }} | kubectl apply -f -
+          sleep 15
+      - name: Verify RGD is Active
+        run: |
+          STATE=$(kubectl get rgd ${{ inputs.capability-name }}.kro.run -o jsonpath='{.status.state}')
+          echo "RGD state: $STATE"
+          if [ "$STATE" != "Active" ]; then
+            kubectl describe rgd ${{ inputs.capability-name }}.kro.run
+            exit 1
+          fi
+      - name: Collect debug info
+        if: failure()
+        run: |
+          kubectl get rgd -A -o yaml
+          kubectl logs -n kro-system -l app.kubernetes.io/name=kro --tail=100
+
+  real-infra-test:
+    needs: tier1
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ECR_PUSH_ROLE }}
+          aws-region: us-east-1
+
+      - name: Setup platform CI (real)
+        uses: guilhermegreco/platform-core/.github/actions/setup-platform-ci@main
+        with:
+          mode: real
+          ack-controllers: ${{ inputs.ack-controllers }}
+
+      - name: Validate test structure
+        run: |
+          if [ ! -f ${{ inputs.tests-path }}/instance.yaml ]; then
+            echo "FAIL: Missing ${{ inputs.tests-path }}/instance.yaml"
+            exit 1
+          fi
+          if [ -z "$(ls ${{ inputs.tests-path }}/assertions/*.yaml 2>/dev/null)" ]; then
+            echo "FAIL: No assertion files in ${{ inputs.tests-path }}/assertions/"
+            exit 1
+          fi
+          if [ ! -f ${{ inputs.tests-path }}/cleanup.yaml ]; then
+            echo "FAIL: Missing ${{ inputs.tests-path }}/cleanup.yaml"
+            exit 1
+          fi
+
+      - name: Deploy RGD (previous from ECR, or current if first time)
+        run: |
+          aws ecr get-login-password --region us-east-1 | \
+            helm registry login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }} 2>/dev/null || true
+
+          if helm template prev oci://${{ vars.ECR_REGISTRY }}/${{ vars.PROJECT }}/charts/team-${{ inputs.capability-name }} 2>/dev/null | kubectl apply -f -; then
+            echo "UPGRADE_MODE=true" >> $GITHUB_ENV
+            echo "Previous RGD deployed (will test upgrade path)"
+          else
+            echo "UPGRADE_MODE=false" >> $GITHUB_ENV
+            echo "No previous version in ECR (first deploy) — using current RGD"
+            helm template test ${{ inputs.chart-path }} | kubectl apply -f -
+          fi
+          sleep 15
+
+      - name: Generate Phase 1 Chainsaw test (create + wait)
+        run: |
+          cat > ${{ inputs.tests-path }}/phase1-chainsaw-test.yaml << EOF
+          apiVersion: chainsaw.kyverno.io/v1alpha1
+          kind: Test
+          metadata:
+            name: ${{ inputs.capability-name }}-provision
+          spec:
+            namespace: default
+            timeouts:
+              apply: 30s
+              assert: ${{ inputs.assert-timeout }}
+            steps:
+              - name: create-instance
+                try:
+                  - apply:
+                      file: instance.yaml
+              - name: wait-for-available
+                try:
+                  - assert:
+                      file: "assertions/available.yaml"
+          EOF
+
+      - name: "Phase 1: Provision + wait for available"
+        run: chainsaw test ${{ inputs.tests-path }}/ --config /dev/null --test-file phase1-chainsaw-test
+
+      - name: "Phase 2: Apply NEW RGD (upgrade)"
+        if: env.UPGRADE_MODE == 'true'
+        run: |
+          echo "Upgrading RGD to current branch version..."
+          helm template test ${{ inputs.chart-path }} | kubectl apply -f -
+          echo "New RGD applied. kro will reconcile the existing instance..."
+          sleep 15
+
+      - name: Generate Phase 3 Chainsaw test (assertions + cleanup)
+        run: |
+          cat > ${{ inputs.tests-path }}/phase3-chainsaw-test.yaml << EOF
+          apiVersion: chainsaw.kyverno.io/v1alpha1
+          kind: Test
+          metadata:
+            name: ${{ inputs.capability-name }}-verify-and-cleanup
+          spec:
+            namespace: default
+            timeouts:
+              apply: 30s
+              assert: ${{ inputs.assert-timeout }}
+              error: 2m
+              delete: ${{ inputs.delete-timeout }}
+            steps:
+              - name: verify-all-assertions
+                try:
+                  - assert:
+                      file: "assertions/*.yaml"
+                catch:
+                  - podLogs:
+                      selector: app.kubernetes.io/name=kro
+                      namespace: kro-system
+              - name: delete-instance
+                try:
+                  - delete:
+                      file: cleanup.yaml
+              - name: verify-cleanup
+                try:
+                  - error:
+                      file: "assertions/available.yaml"
+                catch:
+                  - podLogs:
+                      selector: app.kubernetes.io/name=kro
+                      namespace: kro-system
+          EOF
+
+      - name: "Phase 3: Verify assertions + cleanup"
+        run: chainsaw test ${{ inputs.tests-path }}/ --config /dev/null --test-file phase3-chainsaw-test
+
+      - name: Force cleanup (safety net)
+        if: always()
+        run: |
+          kubectl delete -f ${{ inputs.tests-path }}/instance.yaml 2>/dev/null || true
+          sleep 30
+
+  publish:
+    needs: real-infra-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ECR_PUSH_ROLE }}
+          aws-region: us-east-1
+      - uses: azure/setup-helm@v4
+      - run: |
+          aws ecr get-login-password | helm registry login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
+          helm package ${{ inputs.chart-path }}
+          CHART=$(yq '.name' ${{ inputs.chart-path }}/Chart.yaml)
+          VERSION=$(yq '.version' ${{ inputs.chart-path }}/Chart.yaml)
+          helm push ${CHART}-${VERSION}.tgz oci://${{ vars.ECR_REGISTRY }}/${{ vars.PROJECT }}/charts
+
+  verify-staging:
+    needs: publish
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ECR_PUSH_ROLE }}
+          aws-region: us-east-1
+      - name: Connect to EKS
+        run: aws eks update-kubeconfig --name plat-cp-cluster --region us-east-1
+      - name: Wait for ArgoCD sync
+        run: |
+          for i in $(seq 1 36); do
+            SYNC=$(kubectl get application staging-${{ inputs.capability-name }} -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$(kubectl get application staging-${{ inputs.capability-name }} -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            if [ "$SYNC" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then echo "Synced!"; break; fi
+            if [ $i -eq 36 ]; then echo "FAIL: timeout"; exit 1; fi
+            sleep 10
+          done
+      - name: Verify RGD Active and instances healthy
+        run: |
+          STATE=$(kubectl get rgd ${{ inputs.capability-name }}.kro.run -o jsonpath='{.status.state}' 2>/dev/null)
+          echo "RGD state in staging: $STATE"
+          if [ "$STATE" != "Active" ]; then echo "FAIL: RGD not Active"; exit 1; fi
+          echo "PASS: All healthy"
