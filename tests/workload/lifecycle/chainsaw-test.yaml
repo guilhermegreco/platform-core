@@ -1,0 +1,88 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: workload-capability-lifecycle
+spec:
+  timeouts:
+    assert: 15m
+    error: 5m
+    delete: 5m
+  steps:
+    # --- Deploy with database only ---
+    - name: deploy-db-only
+      try:
+        - script:
+            timeout: 60s
+            content: |
+              helm upgrade --install lifecycle-test ../../../charts/platform-app \
+                --namespace platform-testing --create-namespace \
+                --set name=lifecycle-test \
+                --set namespace=platform-testing \
+                --set image=279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest \
+                --set database.enabled=true \
+                --set cache.enabled=false \
+                --set events.enabled=false
+
+    - name: verify-db-ready
+      try:
+        - assert:
+            file: assertions/pod-ready.yaml
+        - assert:
+            file: assertions/db-secret.yaml
+
+    # --- Add cache ---
+    - name: add-cache
+      try:
+        - script:
+            timeout: 60s
+            content: |
+              helm upgrade lifecycle-test ../../../charts/platform-app \
+                --namespace platform-testing \
+                --set name=lifecycle-test \
+                --set namespace=platform-testing \
+                --set image=279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest \
+                --set database.enabled=true \
+                --set cache.enabled=true \
+                --set events.enabled=false
+
+    - name: verify-db-and-cache-ready
+      try:
+        - assert:
+            file: assertions/pod-ready.yaml
+        - assert:
+            file: assertions/db-secret.yaml
+        - assert:
+            file: assertions/cache-secret.yaml
+
+    # --- Remove database ---
+    - name: remove-database
+      try:
+        - script:
+            timeout: 60s
+            content: |
+              helm upgrade lifecycle-test ../../../charts/platform-app \
+                --namespace platform-testing \
+                --set name=lifecycle-test \
+                --set namespace=platform-testing \
+                --set image=279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest \
+                --set database.enabled=false \
+                --set cache.enabled=true \
+                --set events.enabled=false
+
+    - name: verify-db-removed-cache-works
+      try:
+        - assert:
+            file: assertions/pod-ready.yaml
+        - assert:
+            file: assertions/cache-secret.yaml
+        - error:
+            file: assertions/db-secret.yaml
+
+    # --- Cleanup ---
+    - name: cleanup
+      try:
+        - script:
+            timeout: 60s
+            content: helm uninstall lifecycle-test --namespace platform-testing
+        - error:
+            file: assertions/pod-ready.yaml

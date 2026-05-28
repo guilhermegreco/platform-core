@@ -1,0 +1,7 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lifecycle-test
+  namespace: platform-testing
+status:
+  availableReplicas: 1

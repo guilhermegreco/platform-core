@@ -24,6 +24,13 @@ spec:
           image: {{ .Values.image }}
           ports:
             - containerPort: {{ .Values.port }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30
           resources:
             requests:
               cpu: 250m
@@ -46,6 +53,11 @@ spec:
                 secretKeyRef:
                   name: {{ $dbSecret }}
                   key: username
+            - name: DATABASE_SECRET_ARN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dbSecret }}
+                  key: secretArn
             {{- end }}
             {{- if .Values.events.enabled }}
             {{- $eventsSecret := ternary (printf "%s-conn" .Values.events.id) (printf "%s-events-conn" .Values.name) (eq (default "default" .Values.events.class) "existing") }}

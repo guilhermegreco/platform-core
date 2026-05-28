@@ -10,6 +10,66 @@ def health():
     return jsonify({"status": "healthy"})
 
 
+@app.route("/ready")
+def ready():
+    checks = {}
+    all_ok = True
+
+    if os.environ.get("DATABASE_HOST"):
+        try:
+            import psycopg2
+            password = None
+            secret_arn = os.environ.get("DATABASE_SECRET_ARN")
+            if secret_arn:
+                import boto3
+                sm = boto3.client("secretsmanager", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+                secret = sm.get_secret_value(SecretId=secret_arn)
+                password = json.loads(secret["SecretString"])["password"]
+            conn = psycopg2.connect(
+                host=os.environ["DATABASE_HOST"],
+                port=os.environ.get("DATABASE_PORT", "5432"),
+                user="postgres", password=password or "platform-generated",
+                dbname="postgres", connect_timeout=5
+            )
+            conn.close()
+            checks["database"] = "connected"
+        except Exception as e:
+            checks["database"] = f"failed: {e}"
+            all_ok = False
+
+    if os.environ.get("CACHE_HOST"):
+        try:
+            import redis
+            r = redis.Redis(
+                host=os.environ["CACHE_HOST"],
+                port=int(os.environ.get("CACHE_PORT", "6379")),
+                socket_connect_timeout=5
+            )
+            r.ping()
+            checks["cache"] = "connected"
+        except Exception as e:
+            checks["cache"] = f"failed: {e}"
+            all_ok = False
+
+    if os.environ.get("EVENTS_QUEUE_URL"):
+        try:
+            import boto3
+            sqs = boto3.client("sqs", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+            sqs.get_queue_attributes(
+                QueueUrl=os.environ["EVENTS_QUEUE_URL"],
+                AttributeNames=["QueueArn"]
+            )
+            checks["events"] = "connected"
+        except Exception as e:
+            checks["events"] = f"failed: {e}"
+            all_ok = False
+
+    if not checks:
+        checks["status"] = "no capabilities configured"
+
+    return jsonify(checks), 200 if all_ok else 503
+
+
 @app.route("/")
 def index():
     return jsonify({
@@ -36,9 +96,16 @@ def db_check():
 
     try:
         import psycopg2
+        password = None
+        secret_arn = os.environ.get("DATABASE_SECRET_ARN")
+        if secret_arn:
+            import boto3
+            sm = boto3.client("secretsmanager", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+            secret = sm.get_secret_value(SecretId=secret_arn)
+            password = json.loads(secret["SecretString"])["password"]
         conn = psycopg2.connect(
             host=host, port=port,
-            user="postgres", password="platform-generated",
+            user="postgres", password=password or "platform-generated",
             dbname="postgres", connect_timeout=5
         )
         cur = conn.cursor()
