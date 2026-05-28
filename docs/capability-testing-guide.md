@@ -390,3 +390,157 @@ Phase 3: Run ALL assertions against the UPGRADED instance
          → Chart never reaches ECR
          → Production is safe
 ```
+
+---
+
+## Versioning Strategy
+
+### Two Levels of Versioning
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CAPABILITY LEVEL (each team, independent)                     │
+│                                                                 │
+│  database: 1.0.0 → 1.1.0 → 1.2.0 → 1.3.0                    │
+│  cache:    1.0.0 → 1.0.1                                      │
+│  pubsub:   1.0.0 → 1.0.1 → 1.0.2                             │
+│                                                                 │
+│  Each team versions their RGD chart using SemVer.              │
+│  Published to ECR. Auto-deployed to staging.                   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  PLATFORM LEVEL (release train, date-based)                    │
+│                                                                 │
+│  Release 2026-06-02:                                           │
+│    database: 1.0.0 → 1.3.0                                    │
+│    cache:    1.0.0 → 1.0.1                                    │
+│    pubsub:   1.0.1 (unchanged)                                 │
+│                                                                 │
+│  Platform team bundles tested capability versions              │
+│  into a production release after E2E validation.               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Semantic Versioning (Capability Level)
+
+Each capability chart follows [SemVer](https://semver.org): `MAJOR.MINOR.PATCH`
+
+| Bump | When | Example | ArgoCD staging behavior |
+|------|------|---------|------------------------|
+| PATCH | Bug fix, no schema change | `1.2.0 → 1.2.1` | Auto-syncs (matches `"1.*"`) |
+| MINOR | New feature, backwards compatible | `1.2.1 → 1.3.0` | Auto-syncs (matches `"1.*"`) |
+| MAJOR | Breaking change | `1.3.0 → 2.0.0` | **Does NOT auto-sync** (doesn't match `"1.*"`) |
+
+### How Version Is Determined
+
+The version is determined by a **PR label** applied by the reviewer:
+
+```
+Developer opens PR → pipeline tests it → reviewer reviews
+
+Reviewer applies label:
+  release/patch  → bug fix
+  release/minor  → new feature
+  release/major  → breaking change
+
+Merge → pipeline calculates version from label + last git tag → publishes
+```
+
+| Label | Last tag | New version |
+|-------|----------|-------------|
+| `release/patch` | 1.2.0 | 1.2.1 |
+| `release/minor` | 1.2.1 | 1.3.0 |
+| `release/major` | 1.3.0 | 2.0.0 |
+| No label | — | **Publish blocked** (pipeline fails) |
+
+### Who Controls What
+
+| Action | Who |
+|--------|-----|
+| Write code | Capability team |
+| Apply release label | Reviewer (capability team lead or platform team) |
+| MAJOR bump approval | Platform team (enforced via CODEOWNERS or label restrictions) |
+| Publish to ECR | Pipeline (automatic after merge + label) |
+| Promote to production | Platform team (release train) |
+
+### Why MAJOR Bumps Are Special
+
+A MAJOR bump means the RGD has a breaking change (removed field, renamed field, type change). This has consequences:
+
+1. **Staging does NOT auto-sync** — ArgoCD's `targetRevision: "1.*"` won't match `2.0.0`
+2. **Platform team must update the ApplicationSet** — change from `"1.*"` to `"2.*"`
+3. **Existing instances might break** — requires migration planning
+4. **Production promotion requires explicit decision** — not part of the regular release train
+
+This is the safety gate for breaking changes.
+
+### Release Train (Platform Level)
+
+The platform team runs a weekly (or on-demand) release process:
+
+```
+Monday 9am: Release train pipeline runs automatically
+
+1. Compare staging vs production:
+   database:  staging=1.3.0  production=1.0.0  ⚠️ upgrade available
+   cache:     staging=1.0.1  production=1.0.0  ⚠️ upgrade available
+   pubsub:    staging=1.0.2  production=1.0.2  ✅ in sync
+
+2. Run E2E tests against staging versions:
+   Deploy workload with all capabilities → verify everything works
+
+3. If E2E passes → create Release PR:
+   Title: "Release 2026-06-02"
+   Body:
+     database: 1.0.0 → 1.3.0
+       - 1.1.0: feat: add performanceInsights
+       - 1.2.0: feat: add readReplicas
+       - 1.3.0: fix: correct default backupRetention
+     cache: 1.0.0 → 1.0.1
+       - 1.0.1: fix: encryption enabled by default
+     pubsub: unchanged
+
+4. Platform team reviews → merges → ArgoCD syncs production
+```
+
+### Version Lifecycle (End to End)
+
+```
+Day 1: DB team pushes "feat: add readReplicas"
+  → Pipeline: Tier 1 ✅ → Tier 2 ✅
+  → Reviewer applies label: release/minor
+  → Merge → version 1.2.0 published to ECR
+  → ArgoCD staging syncs 1.2.0
+
+Day 3: DB team pushes "fix: correct CEL mapping"
+  → Pipeline: Tier 1 ✅ → Tier 2 ✅
+  → Reviewer applies label: release/patch
+  → Merge → version 1.2.1 published to ECR
+  → ArgoCD staging syncs 1.2.1
+
+Monday: Release train
+  → E2E tests staging (database:1.2.1, cache:1.0.1, pubsub:1.0.2)
+  → All pass → Release PR created
+  → Platform team merges → production updated to 1.2.1
+
+Day 10: DB team pushes "feat!: remove deprecated serviceAccount field"
+  → Pipeline: Tier 1 FAILS ✅ (kro rejects breaking CRD change)
+  → Team realizes this needs coordination
+  → Opens discussion with platform team about migration path
+```
+
+### Chart.yaml
+
+The `version` field in Chart.yaml is a **placeholder**. The pipeline overrides it at publish time:
+
+```yaml
+# Chart.yaml (in source)
+version: 0.0.0   ← never manually edited
+
+# At publish time, pipeline does:
+helm package chart --version 1.2.1   ← from git tag
+```
+
+The source of truth for version is the **git tag** (`v1.2.1`), not Chart.yaml.
