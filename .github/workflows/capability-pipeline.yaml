@@ -123,6 +123,8 @@ jobs:
             name: ${{ inputs.capability-name }}-provision
           spec:
             namespace: default
+            cleanup:
+              skipDelete: true
             timeouts:
               apply: 30s
               assert: ${{ inputs.assert-timeout }}
