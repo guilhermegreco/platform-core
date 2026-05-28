@@ -148,6 +148,27 @@ jobs:
           echo "New RGD applied. kro will reconcile the existing instance..."
           sleep 15
 
+      - name: "Phase 2: Verify instance not ERROR after upgrade"
+        if: env.UPGRADE_MODE == 'true'
+        run: |
+          INSTANCE_NAME=$(kubectl get -f ${{ inputs.tests-path }}/instance.yaml -o jsonpath='{.metadata.name}')
+          KIND=$(kubectl get -f ${{ inputs.tests-path }}/instance.yaml -o jsonpath='{.kind}')
+          echo "Checking $KIND/$INSTANCE_NAME state..."
+          for i in $(seq 1 10); do
+            STATE=$(kubectl get -f ${{ inputs.tests-path }}/instance.yaml -o jsonpath='{.status.state}' 2>/dev/null || echo "UNKNOWN")
+            echo "  Attempt $i/10: state=$STATE"
+            if [ "$STATE" = "ERROR" ]; then
+              echo "FAIL: Instance went ERROR after upgrade"
+              kubectl describe -f ${{ inputs.tests-path }}/instance.yaml
+              exit 1
+            fi
+            if [ "$STATE" = "ACTIVE" ]; then
+              echo "PASS: Instance is ACTIVE after upgrade"
+              break
+            fi
+            sleep 5
+          done
+
       - name: Generate Phase 3 Chainsaw test (assertions + cleanup)
         run: |
           cat > ${{ inputs.tests-path }}/phase3-chainsaw-test.yaml << EOF
