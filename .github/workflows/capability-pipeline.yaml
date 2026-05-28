@@ -138,7 +138,7 @@ jobs:
           EOF
 
       - name: "Phase 1: Provision + wait for available"
-        run: chainsaw test ${{ inputs.tests-path }}/ --test-file phase1-chainsaw-test
+        run: chainsaw test ${{ inputs.tests-path }}/ --test-file phase1-chainsaw-test --namespace default
 
       - name: "Phase 2: Apply NEW RGD (upgrade)"
         if: env.UPGRADE_MODE == 'true'
