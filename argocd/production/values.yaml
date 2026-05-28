@@ -1,0 +1,15 @@
+team-database:
+  defaults:
+    clusterName: plat-cp-cluster
+    engineVersion: "16.14"
+    dbSubnetGroupName: plat-cp-db-subnets
+
+team-cache:
+  defaults:
+    clusterName: plat-cp-cluster
+    engineVersion: "7.1"
+    cacheSubnetGroupName: plat-cp-cache-subnets
+
+team-pubsub:
+  defaults:
+    clusterName: plat-cp-cluster

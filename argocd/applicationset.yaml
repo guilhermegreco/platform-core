@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-environments
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - environment: staging
+            path: argocd/staging
+            namespace: platform-staging
+            cluster: in-cluster
+          - environment: production
+            path: argocd/production
+            namespace: platform-system
+            cluster: in-cluster
+  template:
+    metadata:
+      name: "platform-{{environment}}"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/guilhermegreco/platform-core
+        path: "{{path}}"
+        helm:
+          valueFiles:
+            - values.yaml
+      destination:
+        name: "{{cluster}}"
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
