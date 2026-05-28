@@ -344,3 +344,49 @@ The pipeline automatically tests upgrades:
 - **Subsequent runs**: deploys PREVIOUS version from ECR, provisions resource, then applies NEW version on top, and asserts on the upgraded state
 
 This proves your RGD change doesn't break existing instances. No extra configuration needed.
+
+### What Upgrades Can Break (and how the pipeline catches them)
+
+| RGD Change | What happens to existing instances | How pipeline catches it |
+|---|---|---|
+| **Required field added WITHOUT a default** | Existing instances go `ERROR` (missing field) | Tier 2: Chainsaw assertions fail on the upgraded instance (resource won't match expected state) |
+| **Field removed from schema** | kro rejects the CRD update (breaking change) | Tier 1: RGD stays `Inactive` → pipeline fails immediately |
+| **Default value changed** | Existing instances reconcile to new defaults | Tier 2: Assertions verify the new default is applied correctly after upgrade |
+| **Template changed** (e.g., added `performanceInsightsEnabled: true`) | All existing instances reconcile — kro applies the new template | Tier 2: Assertions verify the new field is present after upgrade |
+| **Field renamed** | kro rejects CRD update (breaking change) | Tier 1: RGD stays `Inactive` |
+| **Field type changed** (e.g., string → integer) | kro rejects CRD update (breaking change) | Tier 1: RGD stays `Inactive` |
+
+### Safe vs Breaking Changes
+
+**Safe (won't break existing instances):**
+- Adding a new field WITH a default value
+- Changing a default value
+- Adding new resources to the template (e.g., a monitoring ConfigMap)
+- Changing hardcoded values in the template (e.g., bumping engine version)
+
+**Breaking (will break existing instances or be rejected by kro):**
+- Adding a required field WITHOUT a default
+- Removing a field from the schema
+- Renaming a field
+- Changing a field's type
+
+**The golden rule for capability teams**: Always add new fields with defaults. Never remove fields — deprecate them (set a default and stop using them internally).
+
+### How the Upgrade Test Works
+
+```
+Phase 1: Deploy PREVIOUS RGD from ECR
+         Create instance → provisions with OLD spec
+         Wait for available
+
+Phase 2: Apply NEW RGD on top
+         kro reconciles the SAME instance with NEW spec
+         (This is what happens in production when ArgoCD syncs a new version)
+
+Phase 3: Run ALL assertions against the UPGRADED instance
+         If anything broke (ERROR state, missing fields, wrong values):
+         → Chainsaw assertions fail
+         → Pipeline fails
+         → Chart never reaches ECR
+         → Production is safe
+```
