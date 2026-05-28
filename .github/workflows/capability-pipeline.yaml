@@ -261,27 +261,32 @@ jobs:
     needs: publish
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: guilhermegreco
+          repositories: platform-core
+
       - uses: actions/checkout@v4
         with:
           repository: guilhermegreco/platform-core
-          token: ${{ secrets.PLATFORM_CORE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Bump staging version
         run: |
-          VERSION=${{ needs.publish.outputs.version || env.VERSION }}
-          # Update the dependency version in staging Chart.yaml
-          sed -i "s/name: team-${{ inputs.capability-name }}/name: team-${{ inputs.capability-name }}\n    version: \"${VERSION}\"/; s/version: \"[0-9]*\.[0-9]*\.[0-9]*\"\n    repository/repository/" argocd/staging/Chart.yaml
-          # Simpler: use yq to update the specific dependency
+          VERSION=$(echo "${{ needs.publish.outputs.version }}" | grep -o '[0-9]*\.[0-9]*\.[0-9]*' || echo "0.0.1")
           yq -i '(.dependencies[] | select(.name == "team-${{ inputs.capability-name }}")).version = "'$VERSION'"' argocd/staging/Chart.yaml
+          echo "Updated staging to team-${{ inputs.capability-name }}:$VERSION"
 
       - name: Create and auto-merge PR
         run: |
-          git config user.name "platform-bot"
-          git config user.email "platform-bot@users.noreply.github.com"
+          VERSION=$(yq '(.dependencies[] | select(.name == "team-${{ inputs.capability-name }}")).version' argocd/staging/Chart.yaml)
+          git config user.name "semver-bumper[bot]"
+          git config user.email "semver-bumper[bot]@users.noreply.github.com"
           git checkout -b bump-staging-${{ inputs.capability-name }}-$VERSION
           git add argocd/staging/Chart.yaml
           git commit -m "chore(staging): bump team-${{ inputs.capability-name }} to $VERSION"
@@ -291,4 +296,4 @@ jobs:
             --base main
           gh pr merge --auto --squash
         env:
-          GH_TOKEN: ${{ secrets.PLATFORM_CORE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
