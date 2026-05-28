@@ -219,6 +219,8 @@ jobs:
     needs: real-infra-test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     permissions:
       id-token: write
       contents: write
@@ -233,6 +235,7 @@ jobs:
       - uses: azure/setup-helm@v4
 
       - name: Calculate version from PR label
+        id: version
         run: |
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
           LABEL=$(gh pr list --state merged --limit 1 --json labels --jq '.[0].labels[].name' | grep "release/" | head -1 || echo "release/patch")
@@ -242,6 +245,7 @@ jobs:
             *) NEW_VERSION=$(echo $LAST_TAG | awk -F. '{print $1"."$2"."$3+1}') ;;
           esac
           echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "Publishing version: $NEW_VERSION (label: $LABEL, last tag: $LAST_TAG)"
         env:
           GH_TOKEN: ${{ github.token }}
@@ -278,13 +282,14 @@ jobs:
 
       - name: Bump staging version
         run: |
-          VERSION=$(echo "${{ needs.publish.outputs.version }}" | grep -o '[0-9]*\.[0-9]*\.[0-9]*' || echo "0.0.1")
+          VERSION="${{ needs.publish.outputs.version }}"
+          echo "Bumping team-${{ inputs.capability-name }} to $VERSION"
           yq -i '(.dependencies[] | select(.name == "team-${{ inputs.capability-name }}")).version = "'$VERSION'"' argocd/staging/Chart.yaml
-          echo "Updated staging to team-${{ inputs.capability-name }}:$VERSION"
+          cat argocd/staging/Chart.yaml
 
       - name: Create and auto-merge PR
         run: |
-          VERSION=$(yq '(.dependencies[] | select(.name == "team-${{ inputs.capability-name }}")).version' argocd/staging/Chart.yaml)
+          VERSION="${{ needs.publish.outputs.version }}"
           git config user.name "semver-bumper[bot]"
           git config user.email "semver-bumper[bot]@users.noreply.github.com"
           git checkout -b bump-staging-${{ inputs.capability-name }}-$VERSION
