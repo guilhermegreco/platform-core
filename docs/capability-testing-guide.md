@@ -1,0 +1,284 @@
+# Capability Testing Guide
+
+## Testing Pyramid
+
+```
+                    /\
+                   /  \    Platform E2E (platform team, pre-release)
+                  /    \    → Full workload + all capabilities + upgrade scenario
+                 /______\    → Runs: before production promotion (release train)
+                /        \
+               / TIER 2:  \   Real AWS (capability team, on merge to main)
+              / Chainsaw +  \   → k3d + real ACK controllers + OIDC → real AWS
+             / Real ACK      \   → Provisions real resource, verifies, deletes
+            /________________\   → Runs: on merge to main (~15-20 min)
+           /                  \
+          /  TIER 1: Fast      \  RGD Logic (capability team, on every PR)
+         / k3d + kro + CRDs    \  → Validates RGD compiles and activates
+        /________________________\  → Runs: on every PR push (~2 min)
+       /                          \
+      /  LINT: Helm validation     \  Chart syntax (always)
+     / helm lint + helm template    \  → Validates YAML is correct
+    /________________________________\  → Runs: always (~30 sec)
+```
+
+## Pipeline Structure
+
+### Governed vs Capability Team
+
+The pipeline has two layers:
+
+| Layer | Owned by | Lives in | Can capability team modify? |
+|-------|----------|----------|---------------------------|
+| **Reusable Workflow** | Platform team | `platform-core/.github/workflows/capability-pipeline.yaml` | No |
+| **Shared Action** | Platform team | `platform-core/.github/actions/setup-platform-ci/action.yaml` | No |
+| **Caller Workflow** | Capability team | `platform-capability-*/.github/workflows/pipeline.yaml` | Only inputs (name, controllers, timeouts) |
+| **Test Data** | Capability team | `platform-capability-*/tests/tier2/` | Yes (instance, assertions, cleanup) |
+| **Chart (RGD)** | Capability team | `platform-capability-*/chart/` | Yes |
+
+### What the Platform Team Controls
+
+- Pipeline logic (lint → tier1 → tier2 → publish → verify-staging)
+- Chainsaw test structure (generated at runtime, not in team's repo)
+- Tool versions (kro, ACK, k3d, Chainsaw — pinned in shared action)
+- Timeouts enforcement
+- Upgrade path testing logic
+- Cleanup safety net
+
+### What the Capability Team Controls
+
+- Their RGD (the Helm chart)
+- Test instance (`tests/tier2/instance.yaml`)
+- Assertions (`tests/tier2/assertions/*.yaml`)
+- Cleanup definition (`tests/tier2/cleanup.yaml`)
+- Timeout values (passed as inputs to the reusable workflow)
+- Which ACK controllers they need
+
+## Pipeline Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  PR (every push)                                               │
+│                                                                 │
+│  lint → tier1                                                  │
+│                                                                 │
+│  lint:                                                         │
+│    helm lint chart/                                            │
+│    helm template test chart/ > /dev/null                       │
+│                                                                 │
+│  tier1 (k3d + kro + ACK CRDs only):                           │
+│    Deploy RGD                                                  │
+│    Verify RGD is Active (kro compiled CEL successfully)        │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│  MERGE TO MAIN                                                 │
+│                                                                 │
+│  lint → tier1 → real-infra-test → publish → verify-staging    │
+│                                                                 │
+│  real-infra-test (k3d + real ACK + OIDC + Chainsaw):          │
+│                                                                 │
+│    Phase 1: Provision                                          │
+│    ├── Deploy previous RGD from ECR (or current if first time)│
+│    ├── Chainsaw: apply instance.yaml                          │
+│    └── Chainsaw: assert assertions/available.yaml (wait 15m)  │
+│                                                                 │
+│    Phase 2: Upgrade (if previous version existed)              │
+│    ├── Apply NEW RGD (from current branch)                    │
+│    └── kro reconciles existing instance with new spec         │
+│                                                                 │
+│    Phase 3: Assertions + Cleanup                               │
+│    ├── Chainsaw: assert assertions/*.yaml (all files)         │
+│    ├── Chainsaw: delete cleanup.yaml                          │
+│    └── Chainsaw: error assertions/available.yaml (verify gone)│
+│                                                                 │
+│  publish:                                                      │
+│    helm push to ECR                                           │
+│                                                                 │
+│  verify-staging:                                               │
+│    Connect to real EKS cluster                                │
+│    Wait for ArgoCD to sync                                    │
+│    Verify RGD Active in staging                               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## How to Add Tests (for Capability Teams)
+
+### Required Files
+
+```
+tests/tier2/
+├── instance.yaml        ← The CR to create (your capability kind)
+├── assertions/          ← What to verify on the provisioned resource
+│   ├── available.yaml   ← REQUIRED: proves the resource is ready
+│   ├── tags.yaml        ← Verifies platform tags are set
+│   ├── secret.yaml      ← Verifies connection Secret exists
+│   └── (custom).yaml   ← Add any additional assertions
+└── cleanup.yaml         ← The CR to delete (same as instance.yaml)
+```
+
+### Example: Database Team
+
+**`instance.yaml`** — what to create:
+```yaml
+apiVersion: kro.run/v1alpha1
+kind: Database
+metadata:
+  name: ci-real-test-db
+  namespace: default
+spec:
+  name: ci-real-test
+  namespace: default
+  size: small
+```
+
+**`assertions/available.yaml`** — proves resource provisioned:
+```yaml
+apiVersion: rds.services.k8s.aws/v1alpha1
+kind: DBInstance
+metadata:
+  name: ci-real-test-db
+  namespace: default
+status:
+  dbInstanceStatus: available
+```
+
+**`assertions/tags.yaml`** — proves tags are correct:
+```yaml
+apiVersion: rds.services.k8s.aws/v1alpha1
+kind: DBInstance
+metadata:
+  name: ci-real-test-db
+  namespace: default
+spec:
+  tags:
+    - key: platform.io/capability
+      value: database
+    - key: platform.io/workload
+      value: ci-real-test
+```
+
+**`assertions/defaults.yaml`** — proves CEL/defaults work:
+```yaml
+apiVersion: rds.services.k8s.aws/v1alpha1
+kind: DBInstance
+metadata:
+  name: ci-real-test-db
+  namespace: default
+spec:
+  engine: postgres
+  dbInstanceClass: db.t4g.micro
+  storageType: gp3
+  publiclyAccessible: false
+```
+
+**`assertions/secret.yaml`** — proves connection Secret created:
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ci-real-test-db-conn
+  namespace: default
+```
+
+**`cleanup.yaml`** — what to delete:
+```yaml
+apiVersion: kro.run/v1alpha1
+kind: Database
+metadata:
+  name: ci-real-test-db
+  namespace: default
+```
+
+### How Assertions Work (Chainsaw)
+
+- Assertions use **partial matching** — only the fields you specify are checked
+- Chainsaw **retries automatically** until the assertion becomes true or timeout expires
+- You don't need sleep/wait logic — just declare the desired state
+- `assertions/available.yaml` is special: it's used for both "wait until ready" AND "verify deletion"
+
+### Adding Custom Assertions
+
+Just add a new YAML file in `assertions/`:
+
+```yaml
+# assertions/encryption.yaml
+apiVersion: rds.services.k8s.aws/v1alpha1
+kind: DBInstance
+metadata:
+  name: ci-real-test-db
+  namespace: default
+spec:
+  storageEncrypted: true
+```
+
+The pipeline discovers it automatically — no workflow changes needed.
+
+## Caller Workflow (what capability teams write)
+
+```yaml
+# .github/workflows/pipeline.yaml (the ONLY pipeline file in your repo)
+name: Database Capability Pipeline
+on:
+  push:
+    branches: [main]
+    paths: ['chart/**', 'tests/**']
+  pull_request:
+    paths: ['chart/**', 'tests/**']
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  pipeline:
+    uses: guilhermegreco/platform-core/.github/workflows/capability-pipeline.yaml@main
+    with:
+      chart-path: chart
+      tests-path: tests/tier2
+      capability-name: database
+      ack-controllers: rds
+      assert-timeout: "15m"
+      delete-timeout: "5m"
+    secrets: inherit
+```
+
+### Available Inputs
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `chart-path` | yes | `chart` | Path to the Helm chart |
+| `tests-path` | yes | `tests/tier2` | Path to test data files |
+| `capability-name` | yes | — | Name of the capability (database, cache, pubsub) |
+| `ack-controllers` | yes | `rds` | Comma-separated ACK controllers to install |
+| `assert-timeout` | no | `15m` | How long to wait for resource to be available |
+| `delete-timeout` | no | `5m` | How long to wait for deletion to complete |
+
+### ACK Controllers Available
+
+| Controller | For |
+|-----------|-----|
+| `rds` | Database (RDS) |
+| `elasticache` | Cache (ElastiCache) |
+| `sns` | Events (SNS Topics) |
+| `sqs` | Events (SQS Queues) |
+
+## Onboarding a New Capability
+
+1. Create repo `platform-capability-{name}`
+2. Add `chart/` with your RGD Helm chart
+3. Create `tests/tier2/` with instance + assertions + cleanup
+4. Add the caller workflow (copy template above, change inputs)
+5. Set repo variables: `ECR_PUSH_ROLE`, `ECR_REGISTRY`, `PROJECT`
+6. Push — pipeline runs automatically
+
+## Upgrade Testing
+
+The pipeline automatically tests upgrades:
+
+- **First time** (nothing in ECR): deploys current RGD, provisions resource, asserts
+- **Subsequent runs**: deploys PREVIOUS version from ECR, provisions resource, then applies NEW version on top, and asserts on the upgraded state
+
+This proves your RGD change doesn't break existing instances. No extra configuration needed.
