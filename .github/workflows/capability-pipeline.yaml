@@ -123,8 +123,6 @@ jobs:
             name: ${{ inputs.capability-name }}-provision
           spec:
             namespace: default
-            cleanup:
-              skipDelete: true
             timeouts:
               apply: 30s
               assert: ${{ inputs.assert-timeout }}
@@ -140,7 +138,7 @@ jobs:
           EOF
 
       - name: "Phase 1: Provision + wait for available"
-        run: chainsaw test ${{ inputs.tests-path }}/ --test-file phase1-chainsaw-test --namespace default
+        run: chainsaw test ${{ inputs.tests-path }}/ --test-file phase1-chainsaw-test --namespace default --skip-delete
 
       - name: "Phase 2: Apply NEW RGD (upgrade)"
         if: env.UPGRADE_MODE == 'true'
