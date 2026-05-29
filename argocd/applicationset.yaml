@@ -11,10 +11,6 @@ spec:
             path: argocd/staging
             namespace: platform-staging
             cluster: in-cluster
-          - environment: production
-            path: argocd/production
-            namespace: platform-system
-            cluster: in-cluster
   template:
     metadata:
       name: "platform-{{environment}}"

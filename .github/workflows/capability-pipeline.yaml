@@ -252,6 +252,7 @@ jobs:
 
       - name: Publish to ECR
         run: |
+          VERSION=$(echo "$VERSION" | sed 's/^v//')
           aws ecr get-login-password | helm registry login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
           helm package ${{ inputs.chart-path }} --version $VERSION
           CHART_NAME=$(yq '.name' ${{ inputs.chart-path }}/Chart.yaml)
