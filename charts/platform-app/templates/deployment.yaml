@@ -19,6 +19,14 @@ spec:
         platform.io/team: {{ .Values.team }}
     spec:
       serviceAccountName: {{ .Values.name }}-sa
+      volumes:
+        - name: eks-pod-identity-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: pods.eks.amazonaws.com
+                  expirationSeconds: 86400
+                  path: eks-pod-identity-token
       containers:
         - name: main
           image: {{ .Values.image }}
@@ -35,7 +43,15 @@ spec:
             requests:
               cpu: 250m
               memory: 256Mi
+          volumeMounts:
+            - name: eks-pod-identity-token
+              mountPath: /var/run/secrets/pods.eks.amazonaws.com/serviceaccount
+              readOnly: true
           env:
+            - name: AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
+              value: "/var/run/secrets/pods.eks.amazonaws.com/serviceaccount/eks-pod-identity-token"
+            - name: AWS_CONTAINER_CREDENTIALS_FULL_URI
+              value: "http://169.254.170.23/v1/credentials"
             {{- if .Values.database.enabled }}
             {{- $dbSecret := ternary (printf "%s-conn" .Values.database.id) (printf "%s-db-conn" .Values.name) (eq (default "default" .Values.database.class) "existing") }}
             - name: DATABASE_HOST
