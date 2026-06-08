@@ -3,11 +3,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'charts/**'
+      - 'charts/tenant/**'
       - 'terraform/**'
   pull_request:
     paths:
-      - 'charts/**'
+      - 'charts/tenant/**'
       - 'terraform/**'
 
 env:
@@ -20,7 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
-      - run: helm lint charts/workload-rgd
       - run: helm lint charts/tenant
 
   terraform-validate:
@@ -46,10 +45,6 @@ jobs:
       - uses: azure/setup-helm@v4
       - run: |
           aws ecr get-login-password | helm registry login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
-
-          helm package charts/workload-rgd
-          VERSION=$(yq '.version' charts/workload-rgd/Chart.yaml)
-          helm push workload-rgd-${VERSION}.tgz oci://${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}/charts
 
           helm package charts/tenant
           VERSION=$(yq '.version' charts/tenant/Chart.yaml)
