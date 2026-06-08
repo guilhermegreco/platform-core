@@ -3,7 +3,7 @@ team-database:
     clusterName: plat-cp-cluster
     engineVersion: "16.14"
     dbSubnetGroupName: plat-cp-db-subnets
-    vpcId: "vpc-0c0fc033e4b3c9063"
+    vpcId: "vpc-06de8f26bea8acbb5"
     vpcCidr: "10.0.0.0/16"
 
 team-cache:
@@ -11,7 +11,7 @@ team-cache:
     clusterName: plat-cp-cluster
     engineVersion: "7.1"
     cacheSubnetGroupName: plat-cp-cache-subnets
-    vpcId: "vpc-0c0fc033e4b3c9063"
+    vpcId: "vpc-06de8f26bea8acbb5"
     vpcCidr: "10.0.0.0/16"
 
 team-pubsub:
