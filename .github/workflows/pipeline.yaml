@@ -1,14 +1,12 @@
-name: Platform Core Pipeline
+name: Tenant Chart Pipeline
 on:
   push:
     branches: [main]
     paths:
       - 'charts/tenant/**'
-      - 'terraform/**'
   pull_request:
     paths:
       - 'charts/tenant/**'
-      - 'terraform/**'
 
 env:
   ECR_REGISTRY: 279051970617.dkr.ecr.us-east-1.amazonaws.com
@@ -22,20 +20,13 @@ jobs:
       - uses: azure/setup-helm@v4
       - run: helm lint charts/tenant
 
-  terraform-validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-      - run: |
-          cd terraform/poc
-          terraform init -backend=false
-          terraform validate
-
   publish:
-    needs: [lint, terraform-validate]
+    needs: lint
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
