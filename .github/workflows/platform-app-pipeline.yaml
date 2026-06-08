@@ -344,7 +344,8 @@ jobs:
       - name: Calculate version from PR label
         id: version
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' )
+          LAST_TAG=${LAST_TAG:-"0.0.0"}
           LABEL=$(gh pr list --state merged --limit 1 --json labels --jq '.[0].labels[].name' | grep "release/" | head -1 || echo "release/patch")
           case $LABEL in
             release/major) NEW_VERSION=$(echo $LAST_TAG | awk -F. '{print $1+1".0.0"}') ;;
