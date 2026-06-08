@@ -3,12 +3,16 @@ team-database:
     clusterName: plat-cp-cluster
     engineVersion: "16.14"
     dbSubnetGroupName: plat-cp-db-subnets
+    vpcId: "vpc-0c0fc033e4b3c9063"
+    vpcCidr: "10.0.0.0/16"
 
 team-cache:
   defaults:
     clusterName: plat-cp-cluster
     engineVersion: "7.1"
     cacheSubnetGroupName: plat-cp-cache-subnets
+    vpcId: "vpc-0c0fc033e4b3c9063"
+    vpcCidr: "10.0.0.0/16"
 
 team-pubsub:
   defaults:

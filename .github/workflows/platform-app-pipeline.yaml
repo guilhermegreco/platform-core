@@ -1,0 +1,369 @@
+name: Platform App Chart Pipeline
+on:
+  pull_request:
+    paths:
+      - 'charts/platform-app/**'
+  push:
+    branches: [main]
+    paths:
+      - 'charts/platform-app/**'
+
+env:
+  ECR_REGISTRY: 279051970617.dkr.ecr.us-east-1.amazonaws.com
+  PROJECT: plat-cp
+  CHART_PATH: charts/platform-app
+  TEST_NAMESPACE: platform-app-ci
+  TEST_NAME: e2e-test
+  TEST_IMAGE: 279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest
+  CLUSTER_NAME: plat-cp-cluster
+  ACCOUNT_ID: "279051970617"
+  REGION: us-east-1
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint ${{ env.CHART_PATH }}
+      - run: |
+          COMBOS=(
+            "--set database.enabled=false --set cache.enabled=false --set events.enabled=false"
+            "--set database.enabled=true --set cache.enabled=false --set events.enabled=false"
+            "--set database.enabled=false --set cache.enabled=true --set events.enabled=false"
+            "--set database.enabled=true --set cache.enabled=true --set events.enabled=true"
+            "--set database.enabled=true --set database.class=existing --set database.id=shared"
+          )
+          for combo in "${COMBOS[@]}"; do
+            echo "--- Template: $combo ---"
+            helm template test ${{ env.CHART_PATH }} \
+              --set name=test --set namespace=default \
+              --set-string accountId=${{ env.ACCOUNT_ID }} \
+              --set region=${{ env.REGION }} \
+              --set clusterName=${{ env.CLUSTER_NAME }} \
+              $combo > /dev/null
+          done
+          echo "All template combinations render successfully"
+
+  e2e:
+    needs: lint
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ECR_PUSH_ROLE }}
+          aws-region: us-east-1
+
+      - name: Connect to EKS
+        run: aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.REGION }}
+
+      - name: Pre-flight checks
+        run: |
+          echo "Verifying capability RGDs are Active..."
+          for rgd in database.kro.run cache.kro.run; do
+            STATE=$(kubectl get rgd $rgd -o jsonpath='{.status.state}' 2>/dev/null || echo "NOT_FOUND")
+            if [ "$STATE" != "Active" ]; then
+              echo "FAIL: RGD $rgd is $STATE (expected Active)"
+              exit 1
+            fi
+            echo "  $rgd: Active"
+          done
+
+          echo "Cleaning up previous test runs..."
+          helm uninstall ${{ env.TEST_NAME }} -n ${{ env.TEST_NAMESPACE }} 2>/dev/null || true
+          kubectl delete namespace ${{ env.TEST_NAMESPACE }} --wait=false 2>/dev/null || true
+          sleep 10
+          kubectl create namespace ${{ env.TEST_NAMESPACE }} 2>/dev/null || true
+
+      # --- Phase 1: Fresh deploy (identity only) ---
+      - name: "Phase 1: Deploy with no capabilities"
+        run: |
+          helm upgrade --install ${{ env.TEST_NAME }} ${{ env.CHART_PATH }} \
+            --namespace ${{ env.TEST_NAMESPACE }} --create-namespace \
+            --set name=${{ env.TEST_NAME }} \
+            --set namespace=${{ env.TEST_NAMESPACE }} \
+            --set image=${{ env.TEST_IMAGE }} \
+            --set port=8080 --set replicas=1 \
+            --set clusterName=${{ env.CLUSTER_NAME }} \
+            --set-string accountId=${{ env.ACCOUNT_ID }} \
+            --set region=${{ env.REGION }} \
+            --set database.enabled=false \
+            --set cache.enabled=false \
+            --set events.enabled=false
+
+      - name: "Phase 1: Verify pod ready (identity only)"
+        run: |
+          kubectl wait deployment/${{ env.TEST_NAME }} \
+            --for=condition=Available \
+            --timeout=5m \
+            --namespace=${{ env.TEST_NAMESPACE }}
+
+          echo "Verifying Pod Identity setup..."
+          POD=$(kubectl get pod -n ${{ env.TEST_NAMESPACE }} -l app.kubernetes.io/name=${{ env.TEST_NAME }} -o jsonpath='{.items[0].metadata.name}')
+          VOLUMES=$(kubectl get pod $POD -n ${{ env.TEST_NAMESPACE }} -o jsonpath='{.spec.volumes[*].name}')
+          if [[ ! "$VOLUMES" == *"eks-pod-identity-token"* ]]; then
+            echo "FAIL: Projected token volume not found"
+            exit 1
+          fi
+          echo "Phase 1 PASSED: Pod ready, projected token mounted"
+
+      # --- Phase 2: Add database ---
+      - name: "Phase 2: Upgrade with database enabled"
+        run: |
+          helm upgrade ${{ env.TEST_NAME }} ${{ env.CHART_PATH }} \
+            --namespace ${{ env.TEST_NAMESPACE }} \
+            --set name=${{ env.TEST_NAME }} \
+            --set namespace=${{ env.TEST_NAMESPACE }} \
+            --set image=${{ env.TEST_IMAGE }} \
+            --set port=8080 --set replicas=1 \
+            --set clusterName=${{ env.CLUSTER_NAME }} \
+            --set-string accountId=${{ env.ACCOUNT_ID }} \
+            --set region=${{ env.REGION }} \
+            --set database.enabled=true \
+            --set cache.enabled=false \
+            --set events.enabled=false
+
+      - name: "Phase 2: Assert database resources created"
+        run: |
+          sleep 5
+          echo "Checking Database CR..."
+          kubectl get database ${{ env.TEST_NAME }}-db -n ${{ env.TEST_NAMESPACE }}
+
+          echo "Checking IAM Policy document..."
+          POLICY=$(kubectl get policy.iam ${{ env.TEST_NAME }}-workload-policy -n ${{ env.TEST_NAMESPACE }} -o jsonpath='{.spec.policyDocument}')
+          echo "$POLICY" | grep -q "platform.io/workload" || { echo "FAIL: Policy missing workload tag"; exit 1; }
+          echo "$POLICY" | grep -q "platform.io/namespace" || { echo "FAIL: Policy missing namespace tag"; exit 1; }
+          echo "Policy ABAC tags correct"
+
+      - name: "Phase 2: Wait for database available + pod ready"
+        timeout-minutes: 15
+        run: |
+          echo "Waiting for database to become ACTIVE..."
+          for i in $(seq 1 60); do
+            STATE=$(kubectl get database ${{ env.TEST_NAME }}-db -n ${{ env.TEST_NAMESPACE }} -o jsonpath='{.status.state}' 2>/dev/null)
+            echo "  [$i/60] Database state: $STATE"
+            if [ "$STATE" = "ACTIVE" ]; then break; fi
+            sleep 15
+          done
+
+          if [ "$STATE" != "ACTIVE" ]; then
+            echo "FAIL: Database did not reach ACTIVE"
+            exit 1
+          fi
+
+          echo "Waiting for pod readiness..."
+          kubectl wait deployment/${{ env.TEST_NAME }} \
+            --for=condition=Available \
+            --timeout=5m \
+            --namespace=${{ env.TEST_NAMESPACE }}
+          echo "Phase 2 PASSED: Database connected, pod ready"
+
+      # --- Phase 3: Add cache ---
+      - name: "Phase 3: Upgrade with database + cache"
+        run: |
+          helm upgrade ${{ env.TEST_NAME }} ${{ env.CHART_PATH }} \
+            --namespace ${{ env.TEST_NAMESPACE }} \
+            --set name=${{ env.TEST_NAME }} \
+            --set namespace=${{ env.TEST_NAMESPACE }} \
+            --set image=${{ env.TEST_IMAGE }} \
+            --set port=8080 --set replicas=1 \
+            --set clusterName=${{ env.CLUSTER_NAME }} \
+            --set-string accountId=${{ env.ACCOUNT_ID }} \
+            --set region=${{ env.REGION }} \
+            --set database.enabled=true \
+            --set cache.enabled=true \
+            --set events.enabled=false
+
+      - name: "Phase 3: Wait for cache available + pod ready"
+        timeout-minutes: 15
+        run: |
+          sleep 5
+          echo "Checking Cache CR..."
+          kubectl get cache ${{ env.TEST_NAME }}-cache -n ${{ env.TEST_NAMESPACE }}
+
+          echo "Waiting for cache to become ACTIVE..."
+          for i in $(seq 1 40); do
+            STATE=$(kubectl get cache ${{ env.TEST_NAME }}-cache -n ${{ env.TEST_NAMESPACE }} -o jsonpath='{.status.state}' 2>/dev/null)
+            echo "  [$i/40] Cache state: $STATE"
+            if [ "$STATE" = "ACTIVE" ]; then break; fi
+            sleep 15
+          done
+
+          if [ "$STATE" != "ACTIVE" ]; then
+            echo "FAIL: Cache did not reach ACTIVE"
+            exit 1
+          fi
+
+          echo "Waiting for pod readiness..."
+          kubectl wait deployment/${{ env.TEST_NAME }} \
+            --for=condition=Available \
+            --timeout=5m \
+            --namespace=${{ env.TEST_NAMESPACE }}
+          echo "Phase 3 PASSED: Database + cache connected, pod ready"
+
+      # --- Phase 4: Remove database ---
+      - name: "Phase 4: Remove database, keep cache"
+        run: |
+          helm upgrade ${{ env.TEST_NAME }} ${{ env.CHART_PATH }} \
+            --namespace ${{ env.TEST_NAMESPACE }} \
+            --set name=${{ env.TEST_NAME }} \
+            --set namespace=${{ env.TEST_NAMESPACE }} \
+            --set image=${{ env.TEST_IMAGE }} \
+            --set port=8080 --set replicas=1 \
+            --set clusterName=${{ env.CLUSTER_NAME }} \
+            --set-string accountId=${{ env.ACCOUNT_ID }} \
+            --set region=${{ env.REGION }} \
+            --set database.enabled=false \
+            --set cache.enabled=true \
+            --set events.enabled=false
+
+      - name: "Phase 4: Verify database removed + cache still works"
+        run: |
+          sleep 10
+          echo "Checking DB Secret is gone..."
+          if kubectl get secret ${{ env.TEST_NAME }}-db-conn -n ${{ env.TEST_NAMESPACE }} 2>/dev/null; then
+            echo "FAIL: DB Secret still exists"
+            exit 1
+          fi
+          echo "DB Secret gone"
+
+          echo "Checking Database CR is deleting..."
+          DB_STATE=$(kubectl get database ${{ env.TEST_NAME }}-db -n ${{ env.TEST_NAMESPACE }} -o jsonpath='{.status.state}' 2>/dev/null || echo "DELETED")
+          echo "Database state: $DB_STATE"
+
+          echo "Waiting for pod readiness (cache only)..."
+          kubectl wait deployment/${{ env.TEST_NAME }} \
+            --for=condition=Available \
+            --timeout=5m \
+            --namespace=${{ env.TEST_NAMESPACE }}
+          echo "Phase 4 PASSED: Database removed, cache still serving"
+
+      # --- Phase 5: class:existing ---
+      - name: "Phase 5: Test class:existing binding"
+        run: |
+          echo "Creating fake shared Secret..."
+          kubectl create secret generic shared-db-conn -n ${{ env.TEST_NAMESPACE }} \
+            --from-literal=host=shared.fake.rds.amazonaws.com \
+            --from-literal=port=5432 \
+            --from-literal=username=postgres \
+            --from-literal=dbname=shared \
+            --from-literal=secretArn=arn:aws:secretsmanager:us-east-1:279051970617:secret:fake
+
+          helm upgrade ${{ env.TEST_NAME }} ${{ env.CHART_PATH }} \
+            --namespace ${{ env.TEST_NAMESPACE }} \
+            --set name=${{ env.TEST_NAME }} \
+            --set namespace=${{ env.TEST_NAMESPACE }} \
+            --set image=${{ env.TEST_IMAGE }} \
+            --set port=8080 --set replicas=1 \
+            --set clusterName=${{ env.CLUSTER_NAME }} \
+            --set-string accountId=${{ env.ACCOUNT_ID }} \
+            --set region=${{ env.REGION }} \
+            --set database.enabled=true \
+            --set database.class=existing \
+            --set database.id=shared-db \
+            --set cache.enabled=true \
+            --set events.enabled=false
+
+      - name: "Phase 5: Verify no Database CR + correct env binding"
+        run: |
+          sleep 10
+          echo "Checking no new Database CR was created..."
+          DB_COUNT=$(kubectl get database -n ${{ env.TEST_NAMESPACE }} --no-headers 2>/dev/null | wc -l)
+          if [ "$DB_COUNT" -gt "0" ]; then
+            # Only the deleting one from Phase 4 should remain (or none)
+            ACTIVE_DB=$(kubectl get database -n ${{ env.TEST_NAMESPACE }} -o jsonpath='{.items[?(@.status.state=="ACTIVE")].metadata.name}' 2>/dev/null)
+            if [ -n "$ACTIVE_DB" ]; then
+              echo "FAIL: New Database CR created for class:existing"
+              exit 1
+            fi
+          fi
+          echo "No new Database CR — correct"
+
+          echo "Checking policy uses namespace-scoped tag for existing..."
+          POLICY=$(kubectl get policy.iam ${{ env.TEST_NAME }}-workload-policy -n ${{ env.TEST_NAMESPACE }} -o jsonpath='{.spec.policyDocument}')
+          echo "$POLICY" | grep -q '"aws:ResourceTag/platform.io/workload":"shared-db"' || { echo "FAIL: Policy not scoped to shared-db workload"; exit 1; }
+          echo "$POLICY" | grep -q '"aws:ResourceTag/platform.io/namespace":"${{ env.TEST_NAMESPACE }}"' || { echo "FAIL: Policy not scoped to namespace"; exit 1; }
+          echo "Phase 5 PASSED: class:existing binding correct"
+
+      # --- Phase 6: Cleanup ---
+      - name: "Phase 6: Cleanup"
+        if: always()
+        run: |
+          helm uninstall ${{ env.TEST_NAME }} -n ${{ env.TEST_NAMESPACE }} 2>/dev/null || true
+          kubectl delete secret shared-db-conn -n ${{ env.TEST_NAMESPACE }} 2>/dev/null || true
+
+          echo "Waiting for capability CRs to delete..."
+          for i in $(seq 1 20); do
+            REMAINING=$(kubectl get database,cache -n ${{ env.TEST_NAMESPACE }} --no-headers 2>/dev/null | wc -l)
+            if [ "$REMAINING" -eq "0" ]; then break; fi
+            echo "  [$i/20] $REMAINING CRs still deleting..."
+            sleep 15
+          done
+
+          kubectl delete namespace ${{ env.TEST_NAMESPACE }} --wait=false 2>/dev/null || true
+          echo "Cleanup complete"
+
+      # --- Diagnostics on failure ---
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods -n ${{ env.TEST_NAMESPACE }} -o wide 2>/dev/null
+          echo "=== Pod Describe ==="
+          kubectl describe pods -n ${{ env.TEST_NAMESPACE }} -l app.kubernetes.io/name=${{ env.TEST_NAME }} 2>/dev/null
+          echo "=== Pod Logs ==="
+          kubectl logs -n ${{ env.TEST_NAMESPACE }} -l app.kubernetes.io/name=${{ env.TEST_NAME }} --tail=30 2>/dev/null
+          echo "=== Capability CRs ==="
+          kubectl get database,cache,podidentityassociation,role.iam,policy.iam -n ${{ env.TEST_NAMESPACE }} -o yaml 2>/dev/null
+          echo "=== Events ==="
+          kubectl get events -n ${{ env.TEST_NAMESPACE }} --sort-by='.lastTimestamp' 2>/dev/null | tail -30
+
+  publish:
+    needs: e2e
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: azure/setup-helm@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ECR_PUSH_ROLE }}
+          aws-region: us-east-1
+
+      - name: Calculate version from PR label
+        id: version
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          LABEL=$(gh pr list --state merged --limit 1 --json labels --jq '.[0].labels[].name' | grep "release/" | head -1 || echo "release/patch")
+          case $LABEL in
+            release/major) NEW_VERSION=$(echo $LAST_TAG | awk -F. '{print $1+1".0.0"}') ;;
+            release/minor) NEW_VERSION=$(echo $LAST_TAG | awk -F. '{print $1"."$2+1".0"}') ;;
+            *) NEW_VERSION=$(echo $LAST_TAG | awk -F. '{print $1"."$2"."$3+1}') ;;
+          esac
+          echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $NEW_VERSION"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish to ECR
+        run: |
+          aws ecr get-login-password | helm registry login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+          helm package ${{ env.CHART_PATH }} --version $VERSION
+          helm push platform-app-${VERSION}.tgz oci://${{ env.ECR_REGISTRY }}/${{ env.PROJECT }}/charts
+
+      - name: Tag release
+        run: |
+          git tag v$VERSION
+          git push --tags
