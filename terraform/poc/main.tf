@@ -150,6 +150,7 @@ resource "aws_ecr_repository" "charts" {
     "team-cache",
     "team-pubsub",
     "application-rgd",
+    "platform-app",
   ])
 
   name                 = "${var.project}/charts/${each.value}"
