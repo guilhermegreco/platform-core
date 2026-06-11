@@ -11,17 +11,71 @@ spec:
     # --- Deploy with database only ---
     - name: deploy-db-only
       try:
-        - script:
-            timeout: 60s
-            content: |
-              helm upgrade --install lifecycle-test ../../../charts/platform-app \
-                --namespace platform-testing --create-namespace \
-                --set name=lifecycle-test \
-                --set namespace=platform-testing \
-                --set image=279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest \
-                --set database.enabled=true \
-                --set cache.enabled=false \
-                --set events.enabled=false
+        - apply:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: lifecycle-test
+                namespace: argocd
+              spec:
+                project: default
+                source:
+                  repoURL: https://github.com/guilhermegreco/platform-core
+                  path: charts/platform-app
+                  targetRevision: HEAD
+                  helm:
+                    valuesObject:
+                      name: lifecycle-test
+                      team: platform-testing
+                      namespace: platform-testing
+                      image: 279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest
+                      port: 8080
+                      replicas: 1
+                      clusterName: plat-cp-cluster
+                      accountId: "279051970617"
+                      region: us-east-1
+                      database:
+                        enabled: true
+                        class: default
+                        size: small
+                        engine: postgres
+                        highAvailability: false
+                      cache:
+                        enabled: false
+                        class: default
+                        size: small
+                        engine: redis
+                      events:
+                        enabled: false
+                        class: default
+                        pattern: fanout
+                        dlq: true
+                destination:
+                  name: in-cluster
+                  namespace: platform-testing
+                syncPolicy:
+                  automated:
+                    prune: true
+                    selfHeal: true
+                  syncOptions:
+                    - CreateNamespace=true
+                    - RespectIgnoreDifferences=true
+
+    - name: verify-app-synced
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: lifecycle-test
+                namespace: argocd
+              status:
+                sync:
+                  status: Synced
+                health:
+                  status: Healthy
 
     - name: verify-db-ready
       try:
@@ -33,17 +87,56 @@ spec:
     # --- Add cache ---
     - name: add-cache
       try:
-        - script:
-            timeout: 60s
-            content: |
-              helm upgrade lifecycle-test ../../../charts/platform-app \
-                --namespace platform-testing \
-                --set name=lifecycle-test \
-                --set namespace=platform-testing \
-                --set image=279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest \
-                --set database.enabled=true \
-                --set cache.enabled=true \
-                --set events.enabled=false
+        - apply:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: lifecycle-test
+                namespace: argocd
+              spec:
+                project: default
+                source:
+                  repoURL: https://github.com/guilhermegreco/platform-core
+                  path: charts/platform-app
+                  targetRevision: HEAD
+                  helm:
+                    valuesObject:
+                      name: lifecycle-test
+                      team: platform-testing
+                      namespace: platform-testing
+                      image: 279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest
+                      port: 8080
+                      replicas: 1
+                      clusterName: plat-cp-cluster
+                      accountId: "279051970617"
+                      region: us-east-1
+                      database:
+                        enabled: true
+                        class: default
+                        size: small
+                        engine: postgres
+                        highAvailability: false
+                      cache:
+                        enabled: true
+                        class: default
+                        size: small
+                        engine: redis
+                      events:
+                        enabled: false
+                        class: default
+                        pattern: fanout
+                        dlq: true
+                destination:
+                  name: in-cluster
+                  namespace: platform-testing
+                syncPolicy:
+                  automated:
+                    prune: true
+                    selfHeal: true
+                  syncOptions:
+                    - CreateNamespace=true
+                    - RespectIgnoreDifferences=true
 
     - name: verify-db-and-cache-ready
       try:
@@ -57,17 +150,56 @@ spec:
     # --- Remove database ---
     - name: remove-database
       try:
-        - script:
-            timeout: 60s
-            content: |
-              helm upgrade lifecycle-test ../../../charts/platform-app \
-                --namespace platform-testing \
-                --set name=lifecycle-test \
-                --set namespace=platform-testing \
-                --set image=279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest \
-                --set database.enabled=false \
-                --set cache.enabled=true \
-                --set events.enabled=false
+        - apply:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: lifecycle-test
+                namespace: argocd
+              spec:
+                project: default
+                source:
+                  repoURL: https://github.com/guilhermegreco/platform-core
+                  path: charts/platform-app
+                  targetRevision: HEAD
+                  helm:
+                    valuesObject:
+                      name: lifecycle-test
+                      team: platform-testing
+                      namespace: platform-testing
+                      image: 279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest
+                      port: 8080
+                      replicas: 1
+                      clusterName: plat-cp-cluster
+                      accountId: "279051970617"
+                      region: us-east-1
+                      database:
+                        enabled: false
+                        class: default
+                        size: small
+                        engine: postgres
+                        highAvailability: false
+                      cache:
+                        enabled: true
+                        class: default
+                        size: small
+                        engine: redis
+                      events:
+                        enabled: false
+                        class: default
+                        pattern: fanout
+                        dlq: true
+                destination:
+                  name: in-cluster
+                  namespace: platform-testing
+                syncPolicy:
+                  automated:
+                    prune: true
+                    selfHeal: true
+                  syncOptions:
+                    - CreateNamespace=true
+                    - RespectIgnoreDifferences=true
 
     - name: verify-db-removed-cache-works
       try:
@@ -81,8 +213,11 @@ spec:
     # --- Cleanup ---
     - name: cleanup
       try:
-        - script:
-            timeout: 60s
-            content: helm uninstall lifecycle-test --namespace platform-testing
+        - delete:
+            ref:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              name: lifecycle-test
+              namespace: argocd
         - error:
             file: assertions/pod-ready.yaml
