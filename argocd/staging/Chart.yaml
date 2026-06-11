@@ -4,7 +4,7 @@ version: 0.0.0
 description: Platform capabilities deployed to staging (pinned versions)
 dependencies:
   - name: team-database
-    version: "1.1.7"
+    version: "1.1.8"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
   - name: team-cache
     version: "1.0.4"
