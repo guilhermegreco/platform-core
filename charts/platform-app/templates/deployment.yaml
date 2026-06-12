@@ -34,11 +34,11 @@ spec:
             - containerPort: {{ .Values.port }}
           readinessProbe:
             httpGet:
-              path: /ready
+              path: {{ .Values.readinessProbe.path }}
               port: {{ .Values.port }}
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            failureThreshold: 30
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
           resources:
             requests:
               cpu: 250m
@@ -53,7 +53,8 @@ spec:
             - name: AWS_CONTAINER_CREDENTIALS_FULL_URI
               value: "http://169.254.170.23/v1/credentials"
             {{- if .Values.database.enabled }}
-            {{- $dbSecret := ternary (printf "%s-conn" .Values.database.id) (printf "%s-db-conn" .Values.name) (eq (default "default" .Values.database.class) "existing") }}
+            {{- if and (eq (default "default" .Values.database.class) "existing") (not .Values.database.id) }}{{ fail "database.id is required when database.class is existing" }}{{- end }}
+            {{- $dbSecret := ternary (printf "%s-db-conn" .Values.database.id) (printf "%s-db-conn" .Values.name) (eq (default "default" .Values.database.class) "existing") }}
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
@@ -76,7 +77,8 @@ spec:
                   key: secretArn
             {{- end }}
             {{- if .Values.events.enabled }}
-            {{- $eventsSecret := ternary (printf "%s-conn" .Values.events.id) (printf "%s-events-conn" .Values.name) (eq (default "default" .Values.events.class) "existing") }}
+            {{- if and (eq (default "default" .Values.events.class) "existing") (not .Values.events.id) }}{{ fail "events.id is required when events.class is existing" }}{{- end }}
+            {{- $eventsSecret := ternary (printf "%s-events-conn" .Values.events.id) (printf "%s-events-conn" .Values.name) (eq (default "default" .Values.events.class) "existing") }}
             - name: EVENTS_TOPIC_ARN
               valueFrom:
                 secretKeyRef:
@@ -89,7 +91,8 @@ spec:
                   key: queueUrl
             {{- end }}
             {{- if .Values.cache.enabled }}
-            {{- $cacheSecret := ternary (printf "%s-conn" .Values.cache.id) (printf "%s-cache-conn" .Values.name) (eq (default "default" .Values.cache.class) "existing") }}
+            {{- if and (eq (default "default" .Values.cache.class) "existing") (not .Values.cache.id) }}{{ fail "cache.id is required when cache.class is existing" }}{{- end }}
+            {{- $cacheSecret := ternary (printf "%s-cache-conn" .Values.cache.id) (printf "%s-cache-conn" .Values.name) (eq (default "default" .Values.cache.class) "existing") }}
             - name: CACHE_HOST
               valueFrom:
                 secretKeyRef:

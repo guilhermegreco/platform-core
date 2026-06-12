@@ -5,17 +5,17 @@
 {{- $ns := .Values.namespace }}
 {{- if .Values.database.enabled }}
 {{- $dbWorkload := ternary .Values.database.id $name (eq (default "default" .Values.database.class) "existing") }}
-{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["rds-db:connect"],"Resource":"arn:aws:rds-db:%s:%s:dbuser:*/*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region $account $dbWorkload $ns) }}
-{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["secretsmanager:GetSecretValue","secretsmanager:DescribeSecret"],"Resource":"arn:aws:secretsmanager:%s:%s:secret:rds!*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region $account $dbWorkload $ns) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["rds-db:connect"],"Resource":"arn:aws:rds-db:%s:%s:dbuser:*/*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region ($account | toString) $dbWorkload $ns) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["secretsmanager:GetSecretValue","secretsmanager:DescribeSecret"],"Resource":"arn:aws:secretsmanager:%s:%s:secret:rds!*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region ($account | toString) $dbWorkload $ns) }}
 {{- end }}
 {{- if .Values.events.enabled }}
 {{- $eventsWorkload := ternary .Values.events.id $name (eq (default "default" .Values.events.class) "existing") }}
-{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["sqs:SendMessage","sqs:ReceiveMessage","sqs:DeleteMessage","sqs:GetQueueAttributes"],"Resource":"arn:aws:sqs:%s:%s:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region $account $eventsWorkload $ns) }}
-{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["sns:Publish"],"Resource":"arn:aws:sns:%s:%s:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region $account $eventsWorkload $ns) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["sqs:SendMessage","sqs:ReceiveMessage","sqs:DeleteMessage","sqs:GetQueueAttributes"],"Resource":"arn:aws:sqs:%s:%s:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region ($account | toString) $eventsWorkload $ns) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["sns:Publish"],"Resource":"arn:aws:sns:%s:%s:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region ($account | toString) $eventsWorkload $ns) }}
 {{- end }}
 {{- if .Values.cache.enabled }}
 {{- $cacheWorkload := ternary .Values.cache.id $name (eq (default "default" .Values.cache.class) "existing") }}
-{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["elasticache:Connect"],"Resource":"arn:aws:elasticache:%s:%s:replicationgroup:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region $account $cacheWorkload $ns) }}
+{{- $statements = append $statements (printf `{"Effect":"Allow","Action":["elasticache:Connect"],"Resource":"arn:aws:elasticache:%s:%s:replicationgroup:*","Condition":{"StringEquals":{"aws:ResourceTag/platform.io/workload":"%s","aws:ResourceTag/platform.io/namespace":"%s"}}}` $region ($account | toString) $cacheWorkload $ns) }}
 {{- end }}
 {{- if $statements }}
 apiVersion: iam.services.k8s.aws/v1alpha1

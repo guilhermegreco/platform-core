@@ -19,5 +19,5 @@ spec:
     }
   {{- if or .Values.database.enabled .Values.events.enabled .Values.cache.enabled }}
   policies:
-    - {{ printf "arn:aws:iam::%s:policy/%s-workload-policy" .Values.accountId .Values.name }}
+    - {{ printf "arn:aws:iam::%s:policy/%s-workload-policy" (.Values.accountId | toString) .Values.name }}
   {{- end }}

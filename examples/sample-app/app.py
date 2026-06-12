@@ -28,7 +28,7 @@ def ready():
             conn = psycopg2.connect(
                 host=os.environ["DATABASE_HOST"],
                 port=os.environ.get("DATABASE_PORT", "5432"),
-                user="postgres", password=password or "platform-generated",
+                user=os.environ.get("DATABASE_USER", "postgres"), password=password or "platform-generated",
                 dbname="postgres", connect_timeout=5
             )
             conn.close()
@@ -43,7 +43,8 @@ def ready():
             r = redis.Redis(
                 host=os.environ["CACHE_HOST"],
                 port=int(os.environ.get("CACHE_PORT", "6379")),
-                socket_connect_timeout=5
+                socket_connect_timeout=5,
+                ssl=True, ssl_cert_reqs=None
             )
             r.ping()
             checks["cache"] = "connected"
@@ -78,7 +79,8 @@ def index():
         "environment": {
             "DATABASE_HOST": os.environ.get("DATABASE_HOST", "not set"),
             "DATABASE_PORT": os.environ.get("DATABASE_PORT", "not set"),
-            "DATABASE_SECRET": os.environ.get("DATABASE_SECRET", "not set"),
+            "DATABASE_USER": os.environ.get("DATABASE_USER", "not set"),
+            "DATABASE_SECRET_ARN": os.environ.get("DATABASE_SECRET_ARN", "not set"),
             "CACHE_HOST": os.environ.get("CACHE_HOST", "not set"),
             "CACHE_PORT": os.environ.get("CACHE_PORT", "not set"),
             "EVENTS_TOPIC_ARN": os.environ.get("EVENTS_TOPIC_ARN", "not set"),
@@ -105,7 +107,7 @@ def db_check():
             password = json.loads(secret["SecretString"])["password"]
         conn = psycopg2.connect(
             host=host, port=port,
-            user="postgres", password=password or "platform-generated",
+            user=os.environ.get("DATABASE_USER", "postgres"), password=password or "platform-generated",
             dbname="postgres", connect_timeout=5
         )
         cur = conn.cursor()
@@ -126,7 +128,7 @@ def cache_check():
 
     try:
         import redis
-        r = redis.Redis(host=host, port=int(port), socket_connect_timeout=5)
+        r = redis.Redis(host=host, port=int(port), socket_connect_timeout=5, ssl=True, ssl_cert_reqs=None)
         r.ping()
         return jsonify({"status": "connected", "info": r.info("server")["redis_version"]})
     except Exception as e:

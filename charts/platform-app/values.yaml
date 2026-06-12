@@ -2,6 +2,8 @@ name: my-app
 team: default
 namespace: default
 
+# NOTE: The default image (nginx:latest) does not serve /ready. When using the
+# default readinessProbe path, replace this with an image that serves that endpoint.
 image: nginx:latest
 port: 8080
 replicas: 2
@@ -10,25 +12,32 @@ clusterName: plat-cp-cluster
 accountId: "279051970617"
 region: us-east-1
 
+# readinessProbe configures the HTTP readiness probe for the main container.
+# path must be served by your application; the default /ready requires your image to implement it.
+readinessProbe:
+  path: /ready
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 30
+
 database:
   enabled: false
-  class: default    # "default" = provision new, "existing" = bind to shared resource
-  id: ""            # logical name of the shared resource (only used when class: existing)
+  class: default    # "default" = provision new, "existing" = bind to shared resource in the SAME namespace
+  id: ""            # owner app's name (e.g. "shared"); required when class=existing. Cross-namespace binding is not supported — IAM tag conditions would deny access.
   size: small
   engine: postgres
   highAvailability: false
 
 cache:
   enabled: false
-  class: default
-  id: ""
+  class: default    # "default" = provision new, "existing" = bind to shared resource in the SAME namespace
+  id: ""            # owner app's name; required when class=existing. Cross-namespace binding is not supported.
   size: small
   engine: redis
 
 events:
   enabled: false
-  class: default
-  id: ""
+  class: default    # "default" = provision new, "existing" = bind to shared resource in the SAME namespace
+  id: ""            # owner app's name; required when class=existing. Cross-namespace binding is not supported.
   pattern: fanout
   dlq: true
-# trigger5

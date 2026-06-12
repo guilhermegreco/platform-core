@@ -10,4 +10,4 @@ spec:
   clusterName: {{ .Values.clusterName }}
   namespace: {{ .Values.namespace }}
   serviceAccount: {{ .Values.name }}-sa
-  roleARN: {{ printf "arn:aws:iam::%s:role/%s-role" .Values.accountId .Values.name }}
+  roleARN: {{ printf "arn:aws:iam::%s:role/%s-role" (.Values.accountId | toString) .Values.name }}
