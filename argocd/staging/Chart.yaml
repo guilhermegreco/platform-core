@@ -10,5 +10,5 @@ dependencies:
     version: "1.0.5"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
   - name: team-pubsub
-    version: "1.0.4"
+    version: "1.0.5"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
