@@ -149,7 +149,6 @@ resource "aws_ecr_repository" "charts" {
     "team-database",
     "team-cache",
     "team-pubsub",
-    "application-rgd",
     "platform-app",
   ])
 

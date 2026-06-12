@@ -12,7 +12,7 @@ spec:
       quotas:
         maxCpu: string | default="8"
         maxMemory: string | default="16Gi"
-        maxWorkloads: string | default={{ .Values.defaults.maxWorkloads | quote }}
+        maxApps: string | default={{ .Values.defaults.maxApps | quote }}
         maxDatabases: string | default={{ .Values.defaults.maxDatabases | quote }}
         maxCaches: string | default={{ .Values.defaults.maxCaches | quote }}
     status:
@@ -49,7 +49,7 @@ spec:
           hard:
             requests.cpu: ${schema.spec.quotas.maxCpu}
             requests.memory: ${schema.spec.quotas.maxMemory}
-            count/workloads.kro.run: ${schema.spec.quotas.maxWorkloads}
+            count/deployments.apps: ${schema.spec.quotas.maxApps}
             count/databases.kro.run: ${schema.spec.quotas.maxDatabases}
             count/caches.kro.run: ${schema.spec.quotas.maxCaches}
 

@@ -1,1 +1,7 @@
 *.tgz
+
+# Terraform — local state can contain secrets/account data; never commit
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl

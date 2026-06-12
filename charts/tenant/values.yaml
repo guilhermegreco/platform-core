@@ -1,4 +1,4 @@
 defaults:
-  maxWorkloads: "10"
+  maxApps: "10"
   maxDatabases: "5"
   maxCaches: "3"
