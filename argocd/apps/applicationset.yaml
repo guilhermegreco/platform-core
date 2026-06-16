@@ -86,7 +86,9 @@ spec:
               - name: platform.ingress.groupPrefix
                 value: "{{index .metadata.annotations \"platform.io/ingress-group-prefix\"}}"
       destination:
-        name: "{{.name}}"
+        # Use the cluster's server (ARN) from the clusters generator — NOT {{.name}},
+        # which the git file's `name: <app>` content shadows in the matrix.
+        server: "{{.server}}"
         namespace: "{{.path.basename}}"
       syncPolicy:
         automated:
