@@ -1,5 +1,8 @@
 apiVersion: v2
 name: platform-app
-version: 1.3.0
+# Placeholder only — the published version is derived at release time from the
+# git tag + PR release/* label by the pipeline (see CLAUDE.md). Kept aligned with
+# the latest published 0.0.x to avoid implying a 1.x stream that does not exist.
+version: 0.0.5
 description: Developer application chart — Score-like DSL for platform workloads
 type: application
