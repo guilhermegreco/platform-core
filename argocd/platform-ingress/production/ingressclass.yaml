@@ -1,0 +1,37 @@
+# Platform-owned, cluster-scoped ingress wiring for EKS Auto Mode's MANAGED ALB.
+# Applied once per cluster by the platform team (NOT by developers, NOT per-app).
+#
+# Pattern: one FQDN per namespace (<namespace>.<domain>), routed by path to the
+# microservices in that namespace, all merged onto a shared ALB via IngressGroup.
+# Developers consume this purely by setting `route.enabled: true` in platform-app;
+# the chart injects this IngressClass name + scheme and derives host/group from the
+# namespace. See charts/platform-app/templates/ingress.yaml.
+#
+# NOTE (TLS deferred): this is HTTP (no certificate-arn / listen-ports here yet).
+# The wildcard-cert HTTPS listener will be added to IngressClassParams in a follow-up.
+---
+apiVersion: eks.amazonaws.com/v1
+kind: IngressClassParams
+metadata:
+  name: platform-alb-params
+  labels:
+    app.kubernetes.io/managed-by: platform
+    platform.io/environment: production
+spec:
+  scheme: internal
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: platform-alb
+  labels:
+    app.kubernetes.io/managed-by: platform
+    platform.io/environment: production
+  # Not default-classed on purpose: platform-app sets ingressClassName explicitly,
+  # so a stray Ingress without a class is NOT silently given an ALB.
+spec:
+  controller: eks.amazonaws.com/alb
+  parameters:
+    apiGroup: eks.amazonaws.com
+    kind: IngressClassParams
+    name: platform-alb-params

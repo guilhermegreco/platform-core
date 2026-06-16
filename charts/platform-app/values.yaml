@@ -12,6 +12,22 @@ clusterName: plat-cp-cluster
 accountId: "279051970617"
 region: us-east-1
 
+# platform.ingress is PLATFORM-INJECTED (e.g. via the ArgoCD ApplicationSet / per-env
+# values), NOT set by developers. It carries ingress topology so that host, IngressGroup,
+# IngressClass, and scheme are uniform across every release in an environment.
+#   - domain:      base domain; the per-namespace FQDN is "<namespace>.<domain>".
+#                  A wildcard cert "*.<domain>" is expected to cover it (TLS wired later).
+#   - groupPrefix: IngressGroup name = "<groupPrefix>-<namespace>" → one shared ALB per
+#                  namespace. Use a per-ENV prefix so staging/prod never share an ALB.
+#   - scheme:      "internal" or "internet-facing".
+#   - className:   the platform IngressClass (Auto Mode managed ALB controller today).
+platform:
+  ingress:
+    domain: ""               # required when route.enabled (e.g. apps.staging.example.com)
+    groupPrefix: platform
+    scheme: internal
+    className: platform-alb
+
 # readinessProbe configures the HTTP readiness probe for the main container.
 # path must be served by your application; the default /ready requires your image to implement it.
 readinessProbe:
@@ -19,6 +35,23 @@ readinessProbe:
   initialDelaySeconds: 10
   periodSeconds: 10
   failureThreshold: 30
+
+# route exposes this microservice externally through the shared, per-namespace ALB.
+# Model: one FQDN per namespace (<namespace>.<platform.ingress.domain>), routed by
+# PATH to each microservice in that namespace. All releases in a namespace merge onto
+# ONE ALB (IngressGroup). The developer sets intent only — host/cert/group/scheme are
+# platform-injected (see platform.ingress below), so topology never leaks into app values.
+#
+# PREFIX-AWARENESS IS REQUIRED: EKS Auto Mode's managed ALB does NOT strip the path
+# prefix (the `transforms` rewrite annotation is silently ignored). Your service receives
+# requests beginning with its path (e.g. "/my-app/..."). You MUST configure your framework
+# to serve under that base path (Spring server.servlet.context-path, Express app.use(prefix),
+# FastAPI root_path, Next.js basePath, Django FORCE_SCRIPT_NAME, etc.) — including your
+# readiness/liveness probe paths, redirects, cookies (scope to the path), and static assets.
+route:
+  enabled: false
+  path: ""          # path under the namespace FQDN; defaults to "/<name>" when empty
+  pathType: Prefix
 
 database:
   enabled: false
