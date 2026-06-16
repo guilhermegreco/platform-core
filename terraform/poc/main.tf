@@ -143,18 +143,15 @@ resource "aws_eks_capability" "argocd" {
 }
 
 # --- ECR Repositories ---
-
-resource "aws_ecr_repository" "charts" {
-  for_each = toset([
-    "team-database",
-    "team-cache",
-    "team-pubsub",
-    "platform-app",
-  ])
-
-  name                 = "${var.project}/charts/${each.value}"
-  image_tag_mutability = "IMMUTABLE"
-}
+#
+# ECR chart repos are owned solely by the platform-control-plane terraform root
+# (the authoritative cluster owner). They were removed from here to eliminate the
+# duplicate, drifting definition across two roots.
+#
+# NOTE: if this root's local state still contains aws_ecr_repository.charts entries,
+# run `terraform state rm 'aws_ecr_repository.charts["<name>"]'` for each BEFORE any
+# future apply of this root, so it relinquishes ownership WITHOUT destroying the
+# live repos (which control-plane now manages).
 
 # --- IAM Role for ACK Capability ---
 
