@@ -1,0 +1,93 @@
+# =============================================================================
+# App-delivery ApplicationSet — the consumer side of the platform.
+#
+# Counterpart to argocd/applicationset.yaml (which deploys the capability RGDs).
+# This deploys DEVELOPER applications via the platform-app chart (pulled from ECR)
+# and closes two gaps at once:
+#
+#   1. Delivery gap: platform-app was published to ECR but nothing deployed it.
+#   2. Topology leak: accountId/region/clusterName/ingress are no longer set by
+#      developers — they're INJECTED here from the cluster Secret's platform.io/*
+#      annotations (stamped by platform-control-plane terraform) via Helm
+#      parameters. Parameters take precedence over the developer's values file, so
+#      a developer cannot override platform-owned keys.
+#
+# Generator: matrix of (git files) x (clusters).
+#   - git: discovers each app's values.yaml under argocd/apps/<env>/<app>/.
+#   - clusters: selects the registered cluster by the `env` label and exposes the
+#     platform.io/* annotations as {{index .metadata.annotations "..."}} vars.
+#
+# Sources (multi-source Application):
+#   - source 1 (ref "values"): this Git repo, providing the developer values file.
+#   - source 2: the platform-app chart pulled from ECR, with the developer file
+#     referenced via $values and platform topology injected via helm.parameters.
+#
+# Developer contract: add argocd/apps/<env>/<app>/values.yaml with INTENT only
+# (name, image, port, replicas, route.*, database.*, cache.*, events.*). All
+# platform-topological values are injected below.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/guilhermegreco/platform-core
+              revision: HEAD
+              files:
+                - path: "argocd/apps/staging/*/values.yaml"
+          - clusters:
+              selector:
+                matchLabels:
+                  env: staging
+  template:
+    metadata:
+      name: "app-{{.path.basename}}-staging"
+    spec:
+      project: default
+      sources:
+        # source 1: this repo, only to supply the developer values file via $values.
+        - repoURL: https://github.com/guilhermegreco/platform-core
+          targetRevision: HEAD
+          ref: values
+        # source 2: the developer app chart from ECR (published by the pipeline).
+        - repoURL: "{{index .metadata.annotations \"platform.io/account-id\"}}.dkr.ecr.{{index .metadata.annotations \"platform.io/region\"}}.amazonaws.com/plat-cp/charts"
+          chart: platform-app
+          targetRevision: "1.*"
+          helm:
+            # Developer intent (Git), referenced from source 1.
+            valueFiles:
+              - "$values/{{.path.path}}/values.yaml"
+            # Platform topology (from cluster Secret annotations) — wins over the file.
+            parameters:
+              - name: namespace
+                value: "{{.path.basename}}"
+              - name: accountId
+                value: "{{index .metadata.annotations \"platform.io/account-id\"}}"
+              - name: region
+                value: "{{index .metadata.annotations \"platform.io/region\"}}"
+              - name: clusterName
+                value: "{{index .metadata.annotations \"platform.io/cluster-name\"}}"
+              - name: platform.ingress.domain
+                value: "{{index .metadata.annotations \"platform.io/ingress-domain\"}}"
+              - name: platform.ingress.scheme
+                value: "{{index .metadata.annotations \"platform.io/ingress-scheme\"}}"
+              - name: platform.ingress.className
+                value: "{{index .metadata.annotations \"platform.io/ingress-class-name\"}}"
+              - name: platform.ingress.groupPrefix
+                value: "{{index .metadata.annotations \"platform.io/ingress-group-prefix\"}}"
+      destination:
+        name: "{{.name}}"
+        namespace: "{{.path.basename}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
