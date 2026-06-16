@@ -1,0 +1,29 @@
+# Developer app values — INTENT ONLY.
+#
+# Deployed by the platform-apps ApplicationSet (argocd/apps/applicationset.yaml),
+# which pulls the platform-app chart from ECR and INJECTS platform topology
+# (accountId, region, clusterName, platform.ingress.*) from the cluster Secret
+# annotations. Do NOT set those here — they are platform-owned and injected, and
+# any value you put for them is overridden.
+#
+# The app is deployed into a namespace named after this directory (sample-app).
+
+name: sample-app
+team: demo
+image: public.ecr.aws/nginx/nginx:latest
+port: 8080
+replicas: 2
+
+# Expose externally via the shared per-namespace ALB. Served at
+# <namespace>.<platform-injected-domain>/sample-app — make the app prefix-aware.
+route:
+  enabled: true
+  path: ""          # defaults to /<name>
+
+# Capability bindings (all optional, default off):
+database:
+  enabled: false
+cache:
+  enabled: false
+events:
+  enabled: false
