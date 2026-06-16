@@ -59,7 +59,10 @@ spec:
         # source 2: the developer app chart from ECR (published by the pipeline).
         - repoURL: "{{index .metadata.annotations \"platform.io/account-id\"}}.dkr.ecr.{{index .metadata.annotations \"platform.io/region\"}}.amazonaws.com/plat-cp/charts"
           chart: platform-app
-          targetRevision: "1.*"
+          # Matches the actually-published chart stream. The platform is pre-1.0;
+          # the pipeline publishes 0.0.x (git-tag driven). Bump to "1.*" only after a
+          # release/major cuts a real 1.0.0 to ECR.
+          targetRevision: "0.0.*"
           helm:
             # Developer intent (Git), referenced from source 1.
             valueFiles:
