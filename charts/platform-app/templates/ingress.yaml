@@ -1,0 +1,50 @@
+{{- if .Values.route.enabled }}
+{{- /*
+  FQDN-per-namespace, path-per-microservice on a shared ALB (EKS Auto Mode).
+
+  - host  is derived from the NAMESPACE (platform topology), never the developer:
+        <namespace>.<platform.ingress.domain>
+    Every platform-app release in the same namespace renders the SAME host, so
+    they all surface under one FQDN.
+  - group is derived from the NAMESPACE so every release in that namespace MERGES
+    onto ONE shared ALB (verified: IngressClassParams/IngressGroup merge).
+  - path  is the one routing choice the developer makes; defaults to "/<name>".
+
+  IMPORTANT — no edge rewrite: EKS Auto Mode's managed ALB silently drops the
+  `transforms` (path-rewrite) annotation. The /<name> prefix is NOT stripped, so
+  the workload MUST be prefix-aware (serve under "/<name>"). See values.yaml.
+*/}}
+{{- if not .Values.platform.ingress.domain }}{{ fail "platform.ingress.domain is required when route.enabled is true (platform-injected, e.g. apps.staging.example.com)" }}{{- end }}
+{{- $host := printf "%s.%s" .Values.namespace .Values.platform.ingress.domain }}
+{{- $group := printf "%s-%s" .Values.platform.ingress.groupPrefix .Values.namespace }}
+{{- $path := .Values.route.path | default (printf "/%s" .Values.name) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.name }}
+    app.kubernetes.io/managed-by: platform
+    platform.io/team: {{ .Values.team }}
+    platform.io/workload: {{ .Values.name }}
+  annotations:
+    alb.ingress.kubernetes.io/group.name: {{ $group }}
+    alb.ingress.kubernetes.io/scheme: {{ .Values.platform.ingress.scheme }}
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.readinessProbe.path | quote }}
+    alb.ingress.kubernetes.io/healthcheck-port: {{ .Values.port | quote }}
+spec:
+  ingressClassName: {{ .Values.platform.ingress.className }}
+  rules:
+    - host: {{ $host }}
+      http:
+        paths:
+          - path: {{ $path }}
+            pathType: {{ .Values.route.pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ .Values.name }}
+                port:
+                  number: 80
+{{- end }}
