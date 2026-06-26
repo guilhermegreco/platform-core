@@ -2,3 +2,6 @@ defaults:
   maxApps: "10"
   maxDatabases: "5"
   maxCaches: "3"
+  # Scheme for each tenant namespace's shared ALB (IngressClassParams). "internal"
+  # or "internet-facing". Set per-environment via the tenant ApplicationSet values.
+  ingressScheme: "internal"

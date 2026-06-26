@@ -34,6 +34,54 @@ spec:
             platform.io/environment: ${env}
             platform.io/managed-by: tenant-controller
 
+    # Per-namespace ALB grouping for EKS Auto Mode.
+    #
+    # The "one shared ALB per namespace" model REQUIRES group.name to live in an
+    # IngressClassParams — EKS Auto Mode's managed ALB controller IGNORES the
+    # alb.ingress.kubernetes.io/group.name *annotation* (verified: it creates a
+    # separate ALB per Ingress when group is set via annotation). Each namespace
+    # therefore gets its own IngressClass (`team-<team>-<env>-alb`) whose params
+    # carry a unique group.name, so every platform-app Ingress in that namespace
+    # merges onto ONE ALB. Apps reference this class via
+    # platform.ingress.className = "<namespace>-alb".
+    - id: ingressclassparams
+      forEach:
+        item: env
+        collection: ${schema.spec.environments}
+      template:
+        apiVersion: eks.amazonaws.com/v1
+        kind: IngressClassParams
+        metadata:
+          name: team-${schema.spec.team}-${env}-alb
+          labels:
+            platform.io/team: ${schema.spec.team}
+            platform.io/environment: ${env}
+            platform.io/managed-by: tenant-controller
+        spec:
+          scheme: {{ .Values.defaults.ingressScheme | default "internal" | quote }}
+          group:
+            name: team-${schema.spec.team}-${env}
+
+    - id: ingressclass
+      forEach:
+        item: env
+        collection: ${schema.spec.environments}
+      template:
+        apiVersion: networking.k8s.io/v1
+        kind: IngressClass
+        metadata:
+          name: team-${schema.spec.team}-${env}-alb
+          labels:
+            platform.io/team: ${schema.spec.team}
+            platform.io/environment: ${env}
+            platform.io/managed-by: tenant-controller
+        spec:
+          controller: eks.amazonaws.com/alb
+          parameters:
+            apiGroup: eks.amazonaws.com
+            kind: IngressClassParams
+            name: team-${schema.spec.team}-${env}-alb
+
     # ResourceQuota per namespace
     - id: quotas
       forEach:

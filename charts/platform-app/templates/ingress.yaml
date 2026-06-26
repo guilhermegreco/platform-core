@@ -6,8 +6,10 @@
         <namespace>.<platform.ingress.domain>
     Every platform-app release in the same namespace renders the SAME host, so
     they all surface under one FQDN.
-  - group is derived from the NAMESPACE so every release in that namespace MERGES
-    onto ONE shared ALB (verified: IngressClassParams/IngressGroup merge).
+  - the shared-ALB merge is driven by group.name in the per-namespace
+    IngressClassParams (created by the tenant RGD), which platform.ingress.className
+    references — NOT by an Ingress annotation (Auto Mode ignores that). All releases
+    in a namespace point at the same IngressClass, so they merge onto ONE ALB.
   - path  is the one routing choice the developer makes; defaults to "/<name>".
 
   IMPORTANT — no edge rewrite: EKS Auto Mode's managed ALB silently drops the
@@ -15,8 +17,8 @@
   the workload MUST be prefix-aware (serve under "/<name>"). See values.yaml.
 */}}
 {{- if not .Values.platform.ingress.domain }}{{ fail "platform.ingress.domain is required when route.enabled is true (platform-injected, e.g. apps.staging.example.com)" }}{{- end }}
+{{- if not .Values.platform.ingress.className }}{{ fail "platform.ingress.className is required when route.enabled is true (the per-namespace IngressClass created by the tenant RGD, e.g. team-shop-prod-alb)" }}{{- end }}
 {{- $host := printf "%s.%s" .Values.namespace .Values.platform.ingress.domain }}
-{{- $group := printf "%s-%s" .Values.platform.ingress.groupPrefix .Values.namespace }}
 {{- $path := .Values.route.path | default (printf "/%s" .Values.name) }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -29,8 +31,12 @@ metadata:
     platform.io/team: {{ .Values.team }}
     platform.io/workload: {{ .Values.name }}
   annotations:
-    alb.ingress.kubernetes.io/group.name: {{ $group }}
-    alb.ingress.kubernetes.io/scheme: {{ .Values.platform.ingress.scheme }}
+    # NOTE: group.name and scheme are NOT set here. On EKS Auto Mode the managed ALB
+    # controller IGNORES the alb.ingress.kubernetes.io/group.name annotation (it would
+    # create a separate ALB per Ingress). Both group.name and scheme are configured in
+    # the per-namespace IngressClassParams (created by the tenant RGD) that
+    # platform.ingress.className points at — that is what merges all of a namespace's
+    # Ingresses onto ONE shared ALB.
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.readinessProbe.path | quote }}
     alb.ingress.kubernetes.io/healthcheck-port: {{ .Values.port | quote }}
