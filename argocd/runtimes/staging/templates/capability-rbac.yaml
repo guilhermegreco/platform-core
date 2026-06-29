@@ -1,0 +1,46 @@
+# kro→ACK in-cluster RBAC for the runtime spoke.
+#
+# A freshly-bootstrapped spoke installs the managed kro + ACK capabilities, but does
+# NOT auto-wire the in-cluster RBAC between them: the kro capability's identity is
+# `forbidden` to manage the ACK CRs (*.services.k8s.aws), so capability CRs (Database,
+# Cache, EventBus) created in the spoke fail to expand. These bindings replicate what
+# the hub has (kro-capability-admin / ack-capability-admin → cluster-admin), deployed
+# INTO the spoke as part of the platform layer the hub's ArgoCD syncs.
+#
+# The subject is the capability's assumed-role session user (EKS access-entry maps the
+# IAM role to this k8s username). Roles are reused from the control plane in the PoC.
+#
+# PoC scope: cluster-admin (mirrors the hub). Harden later to a least-privilege
+# ClusterRole scoped to the kro.run + *.services.k8s.aws API groups + core deps.
+{{- $acct := .Values.accountId | default "279051970617" }}
+{{- $kroRole := .Values.kroCapabilityRole | default "plat-cp-capability-kro" }}
+{{- $ackRole := .Values.ackCapabilityRole | default "plat-cp-ack-capability" }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kro-capability-admin
+  labels:
+    platform.io/managed-by: runtime-platform-layer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: "arn:aws:sts::{{ $acct }}:assumed-role/{{ $kroRole }}/KRO"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ack-capability-admin
+  labels:
+    platform.io/managed-by: runtime-platform-layer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: "arn:aws:sts::{{ $acct }}:assumed-role/{{ $ackRole }}/ACK"
