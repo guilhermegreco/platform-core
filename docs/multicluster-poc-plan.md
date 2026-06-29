@@ -69,9 +69,20 @@ The single account means staging and production runtimes are **co-located** — 
 
 ---
 
-## 3. Phased Plan (Phase 1 cross-cluster proof is DONE)
+## 3. Phased Plan
 
-### Phase 2 — Make the hub repeatable from code (no new capability yet)
+**Progress: Phases 1–4 DONE and validated on live infrastructure. Phase 5 (close the app loop inside the runtime) is next; Phase 6 (fan out) after.**
+
+| Phase | Status |
+|---|---|
+| 1 — cross-cluster proof (raw ACK CRs) | ✅ done |
+| 2 — hub repeatable from code | ✅ done (EKS IAM #4, ECR #4, dead appset CP#5, bootstrap.sh #6, TF dedup #28) |
+| 3 — build `platform-capability-eks` (Runtime RGD) | ✅ done + proven end-to-end (1 `Runtime` CR → cluster + kro/ack/argocd-with-IdC + AccessEntry + 2 secrets → ACTIVE; teardown ordered correctly) |
+| 4 — wire CI | ✅ done (ACK EKS pin + CRDs, #29) |
+| 5 — provision first runtime + close the app loop | ⏳ next |
+| 6 — fan out | later |
+
+### Phase 2 — Make the hub repeatable from code (no new capability yet)  ✅ DONE
 **Goal:** A fresh `terraform apply` + one bootstrap command produces a working hub with no hand-stitching. This is the single biggest gap today (zero bootstrap glue exists; CI only runs `terraform validate`).
 
 **Steps (all in `platform-control-plane/terraform/poc/`):**
@@ -85,7 +96,7 @@ The single account means staging and production runtimes are **co-located** — 
 **New:** the EKS IAM policy block, `bootstrap.sh`, `bootstrap.sh`.
 **Exit check:** From a clean account (or after a clean destroy), `terraform apply && ./bootstrap.sh` brings up a hub whose `kubectl get applicationsets -n argocd` shows all three syncing, capability RGDs land in `platform-system`, and `kubectl get rgd` shows `database/cache/eventbus` Active.
 
-### Phase 3 — Build `platform-capability-eks` (the Runtime RGD), hand-applied first
+### Phase 3 — Build `platform-capability-eks` (the Runtime RGD)  ✅ DONE (proven end-to-end + torn down)
 **Goal:** A `kind: Runtime` RGD that provisions a spoke and registers it, validated incrementally.
 
 **Steps:**
@@ -98,7 +109,7 @@ The single account means staging and production runtimes are **co-located** — 
 **New / cannot reuse byte-for-byte:** `hack/local-ack.sh` is SNS/SQS+ministack-specific (`for ctrl in sns sqs`, `--allow-unsafe-aws-endpoint-urls`) — there is **no ministack equivalent that provisions real EKS clusters**, so the local-emulator tier2 path does not apply; the `runtime-rgd.yaml` body; the EKS status-patch payloads in the fake-status controller.
 **Exit check:** Hand-applied raw graph reaches a registered, hub-deployable spoke (re-confirms Phase 1 with `roleARN` on every Capability). Then `helm template` of the RGD applies clean.
 
-### Phase 4 — Wire CI for `platform-capability-eks`
+### Phase 4 — Wire CI for `platform-capability-eks`  ✅ DONE (#29)
 **Goal:** The capability publishes through the existing pipeline unchanged.
 
 **Steps:**
@@ -110,7 +121,7 @@ The single account means staging and production runtimes are **co-located** — 
 **New:** EKS pin + CRD lines in the action; the EKS fake-status payloads.
 **Exit check:** A PR to `platform-capability-eks` runs `lint→tier1` green; merge runs `real-infra-test` (creates a real spoke, asserts ACTIVE, deletes) and publishes `team-eks` to ECR.
 
-### Phase 5 — Provision the first runtime via a `Runtime` CR and close the app loop
+### Phase 5 — Provision the first runtime via a `Runtime` CR and close the app loop  ⏳ NEXT
 **Goal:** `kubectl apply` a `Runtime` CR on the hub → spoke comes up → hub deploys the platform layer → runtime's own ArgoCD deploys one `platform-app`.
 
 **Steps:**
