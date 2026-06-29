@@ -13,20 +13,19 @@ accountId: "279051970617"
 region: us-east-1
 
 # platform.ingress is PLATFORM-INJECTED (e.g. via the ArgoCD ApplicationSet / per-env
-# values), NOT set by developers. It carries ingress topology so that host, IngressGroup,
-# IngressClass, and scheme are uniform across every release in an environment.
-#   - domain:      base domain; the per-namespace FQDN is "<namespace>.<domain>".
-#                  A wildcard cert "*.<domain>" is expected to cover it (TLS wired later).
-#   - groupPrefix: IngressGroup name = "<groupPrefix>-<namespace>" → one shared ALB per
-#                  namespace. Use a per-ENV prefix so staging/prod never share an ALB.
-#   - scheme:      "internal" or "internet-facing".
-#   - className:   the platform IngressClass (Auto Mode managed ALB controller today).
+# values), NOT set by developers. It carries ingress topology so the FQDN and the
+# shared ALB are uniform across every release in a namespace.
+#   - domain:    base domain; the per-namespace FQDN is "<namespace>.<domain>".
+#                A wildcard cert "*.<domain>" is expected to cover it (TLS wired later).
+#   - className: the per-NAMESPACE IngressClass created by the tenant RGD
+#                (e.g. "team-shop-prod-alb"). Its IngressClassParams carries group.name
+#                + scheme, which is what merges all of a namespace's Ingresses onto ONE
+#                ALB. group/scheme are NOT set on the Ingress here — Auto Mode ignores
+#                the group.name annotation (verified), so it must live in the class.
 platform:
   ingress:
     domain: ""               # required when route.enabled (e.g. apps.staging.example.com)
-    groupPrefix: platform
-    scheme: internal
-    className: platform-alb
+    className: ""            # required when route.enabled; the namespace's IngressClass
 
 # readinessProbe configures the HTTP readiness probe for the main container.
 # path must be served by your application; the default /ready requires your image to implement it.
