@@ -1,0 +1,17 @@
+apiVersion: v2
+name: runtime-staging
+version: 0.0.0
+description: Platform capability RGDs deployed INTO a staging runtime spoke (pinned versions)
+# Mirrors argocd/staging/Chart.yaml but is the payload the HUB syncs into each runtime
+# spoke (via the Runtime RGD's app-of-apps), so the runtime can expand Database/Cache/
+# EventBus CRs locally. Pin-everywhere; promotion = bump these pins (release-train).
+dependencies:
+  - name: team-database
+    version: "1.1.10"
+    repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
+  - name: team-cache
+    version: "1.0.5"
+    repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
+  - name: team-pubsub
+    version: "1.0.6"
+    repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"

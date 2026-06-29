@@ -1,0 +1,11 @@
+# Capability charts read defaults.* (subnets/VPC/cluster) — injected per the runtime.
+# For the PoC the runtime shares the control-plane VPC, so these match the hub.
+team-database:
+  defaults:
+    clusterName: plat-cp-cluster
+team-cache:
+  defaults:
+    clusterName: plat-cp-cluster
+team-pubsub:
+  defaults:
+    clusterName: plat-cp-cluster
