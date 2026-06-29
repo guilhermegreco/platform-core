@@ -9,3 +9,8 @@ team-cache:
 team-pubsub:
   defaults:
     clusterName: plat-cp-cluster
+
+# Capability identities for the spoke kro→ACK RBAC (templates/capability-rbac.yaml).
+accountId: "279051970617"
+kroCapabilityRole: "plat-cp-capability-kro"
+ackCapabilityRole: "plat-cp-ack-capability"
