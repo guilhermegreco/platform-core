@@ -71,7 +71,7 @@ The single account means staging and production runtimes are **co-located** — 
 
 ## 3. Phased Plan
 
-**Progress: Phases 1–4 DONE + validated live. Phase 5 PARTIAL — hub→spoke capability-RGD delivery is proven (capability RGDs reached `Active` inside a real spoke) AND the kro→ACK permission gap is now resolved via an access-entry policy (validated live: a `Database` CR in the spoke expanded → RDS reached `available`). The remaining gap is the runtime's-own-ArgoCD app loop. Phase 6 (fan out) after.**
+**Progress: Phases 1–4 DONE + validated live. Phase 5 PARTIAL — hub→spoke capability-RGD delivery is proven (capability RGDs reached `Active` inside a real spoke), the kro→ACK permission gap is resolved via an access-entry policy (validated live: a `Database` in the spoke → RDS `available`), and the runtime's-own-ArgoCD app loop is now BUILT (spoke ArgoCD deploy-RBAC access-entry + local-cluster registration + two-secret topology + the spoke's `platform-apps` ApplicationSet — renders clean, pending live validation). Remaining: live-validate the app loop + the per-namespace ingress slice inside the spoke. Phase 6 (fan out) after.**
 
 | Phase | Status |
 |---|---|
@@ -79,7 +79,7 @@ The single account means staging and production runtimes are **co-located** — 
 | 2 — hub repeatable from code | ✅ done (EKS IAM #4, ECR #4, dead appset CP#5, bootstrap.sh #6, TF dedup #28) |
 | 3 — build `platform-capability-eks` (Runtime RGD) | ✅ done + proven end-to-end (1 `Runtime` CR → cluster + kro/ack/argocd-with-IdC + AccessEntry + 2 secrets → ACTIVE; teardown ordered correctly) |
 | 4 — wire CI | ✅ done (ACK EKS pin + CRDs, #29) |
-| 5 — provision runtime + deliver platform layer | 🟡 partial (hub→spoke capability delivery PROVEN; kro→ACK permission RESOLVED via access-entry policy, Database→RDS available live; runtime's-own-ArgoCD app loop is the remaining gap) |
+| 5 — provision runtime + deliver platform layer | 🟡 partial (hub→spoke capability delivery PROVEN; kro→ACK RESOLVED, Database→RDS available live; runtime's-own-ArgoCD app loop BUILT — renders clean, pending live validation; ingress slice next) |
 | 6 — fan out | later |
 
 ### Phase 2 — Make the hub repeatable from code (no new capability yet)  ✅ DONE
@@ -121,7 +121,7 @@ The single account means staging and production runtimes are **co-located** — 
 **New:** EKS pin + CRD lines in the action; the EKS fake-status payloads.
 **Exit check:** A PR to `platform-capability-eks` runs `lint→tier1` green; merge runs `real-infra-test` (creates a real spoke, asserts ACTIVE, deletes) and publishes `team-eks` to ECR.
 
-### Phase 5 — Provision the first runtime + deliver the platform layer  🟡 PARTIAL (hub→spoke capability delivery PROVEN; kro→ACK permission RESOLVED via access-entry policy)
+### Phase 5 — Provision the first runtime + deliver the platform layer  🟡 PARTIAL (hub→spoke capability delivery PROVEN; kro→ACK RESOLVED; app loop BUILT, pending live validation)
 
 **DONE + validated live (rt-p5):** Extended the Runtime RGD with a `platformLayer` Argo CD `Application` (hub ns argocd, `destination: <spoke>`, source = the pinned `platform-core/argocd/runtimes/<env>` umbrella). Created `argocd/runtimes/staging/` (pins team-database/cache/pubsub). Result: one `Runtime` CR → spoke ACTIVE with all 3 capabilities → **the hub's ArgoCD synced the platform layer INTO the spoke → the 3 capability RGDs (database/cache/eventbus) reached `Active` on the spoke.** Hub→spoke platform delivery is proven.
 
@@ -131,7 +131,14 @@ The single account means staging and production runtimes are **co-located** — 
 - **Tradeoff (recorded):** ACK takes ownership of the kro capability's access entry — it replaces the auto-attached `AmazonEKSKROPolicy` with this policy set. `AmazonEKSClusterAdminPolicy` is a superset, so kro keeps everything it needs. Also: ACK **adoption** of the pre-existing entry does NOT apply the desired policies (adoption imports current state); a **non-adoption** `AccessEntry` CR is what actually applies them.
 - **Harden later:** swap cluster-admin for a least-privilege cluster-access-policy (or a scoped entry) covering only `kro.run` + `*.services.k8s.aws`. See §8.
 
-**Still to do (the original Phase-5 app loop):** wire the runtime's OWN ArgoCD to deploy `platform-app` (reusing the two-secret topology injection §7 + the merged per-namespace IngressClass). The kro→ACK permission is no longer a blocker — a developer app's `Database`/`Cache`/`EventBus` now expands in the spoke.
+**BUILT — the app loop (the runtime's OWN ArgoCD deploys `platform-app` locally). Renders clean; pending live validation on a fresh spoke.** Closing the loop turned out to need **three** pieces, the third surfaced by the AWS docs (Register target clusters): the managed ArgoCD capability (1) does **not** auto-register its local cluster, and (2) its auto-created access entry carries **no Kubernetes RBAC by default** ("you must explicitly configure the permissions Argo CD needs") — the exact parallel of the kro→ACK gap. So:
+1. **Spoke ArgoCD deploy RBAC (B1 parallel) — Runtime RGD `argocdAccessPolicy`:** a second ACK `AccessEntry` (after `argocdCapability` is ACTIVE) associates `AmazonEKSClusterAdminPolicy` with the spoke's **argocd** capability principal, so its ArgoCD can create workloads locally. Same access-entry-native mechanism, same ACK-co-owns-the-entry tradeoff, same harden-later note as kro.
+2. **Local-cluster registration + topology (two-secret split §7) — `argocd/runtimes/<env>/templates/app-loop/cluster-secrets.yaml`:** the umbrella the hub already syncs into the spoke now also renders the `local-cluster` Secret (`server` = spoke **ARN**, `data.name: in-cluster`) **and** the uniquely-named `<cluster>-topology` Secret (`platform.io/topology: "true"` + `platform.io/*` annotations). A spoke has no Terraform of its own, so the hub delivers declaratively what TF stamps on the hub.
+3. **The spoke's own `platform-apps` ApplicationSet — `.../app-loop/platform-apps-appset.yaml`:** clone of the hub `argocd/apps/applicationset.yaml`, but its clusters generator selects the local topology Secret by label and `destination.name: in-cluster`. Developer app intent lives at `argocd/runtime-apps/<env>/<app>/values.yaml` (kept separate from the hub's `argocd/apps/`). Demo app `sample-app` ships **route-disabled** (proves spoke ArgoCD → Deployment/Service locally without depending on ingress).
+
+All three are **gated on `runtime.clusterArn`** (injected by the RGD `platformLayer` via `helm.parameters`): empty on a bare `helm template`, so capability-only rendering stays safe. Verified: gate-off renders nothing; gate-on renders both Secrets + the ApplicationSet with ArgoCD's `{{...}}` goTemplate placeholders preserved through Helm.
+
+**Still to do:** (a) **live validation** — spin a fresh spoke, confirm `sample-app` reaches Running via the spoke's own ArgoCD; (b) the **ingress slice** — a `Tenant`/per-namespace IngressClass inside the spoke so `route.enabled` apps merge onto a per-namespace ALB (the merged-ALB pattern proven on the hub — group.name in IngressClassParams).
 
 **Original plan steps (for reference):**
 1. Create the **new "platform" GitOps repo** with `control-plane/<env>/`, `runtimes/<env>/`, `apps/<env>/<app>/`. **Partition by CODEOWNERS** so a developer app PR cannot touch control-plane/runtime config.

@@ -10,7 +10,26 @@ team-pubsub:
   defaults:
     clusterName: plat-cp-cluster
 
-# Capability identities for the spoke kro→ACK RBAC (templates/capability-rbac.yaml).
-accountId: "279051970617"
-kroCapabilityRole: "plat-cp-capability-kro"
-ackCapabilityRole: "plat-cp-ack-capability"
+# --- App loop (the runtime's OWN ArgoCD deploys platform-app locally) ---
+#
+# These are INJECTED by the Runtime RGD's platformLayer Application (helm.parameters)
+# when the hub syncs this umbrella into a spoke — see platform-capability-eks
+# runtime-rgd.yaml. On a bare `helm template` they are empty, so the app-loop
+# templates (templates/app-loop/) render to nothing and only the capability RGDs
+# above are deployed. `runtime.clusterArn` being non-empty is the gate that turns
+# the loop on.
+runtime:
+  clusterName: ""
+  clusterArn: ""           # EKS ARN of the spoke; the registration `server` value
+  region: ""
+  environment: staging
+  accountId: ""
+  # Ingress edge for the spoke. Shared with the control-plane VPC for the PoC; these
+  # feed platform.ingress.* injection so an app with route.enabled works once the
+  # tenant RGD has created its per-namespace IngressClass (ingress wiring is a later
+  # increment — the demo app ships route-disabled, so these are carried but unused).
+  ingress:
+    domain: ""
+    scheme: internet-facing
+    className: ""
+    groupPrefix: ""
