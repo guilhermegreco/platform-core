@@ -1,0 +1,43 @@
+# platform-environments ApplicationSet for a PRODUCTION control plane (Phase 6 fan-out).
+#
+# Counterpart to applicationset.yaml (staging). Each control-plane hub runs its OWN
+# ArgoCD and applies the entrypoint for ITS env (bootstrap.sh picks this when
+# ENVIRONMENT!=staging). It deploys the pinned PRODUCTION capability umbrella
+# (argocd/production — release-train controlled) into the prod hub's local cluster.
+#
+# Kept as a separate file (not a second list element) because the staging hub must only
+# ever deploy staging and the prod hub only prod — they are different clusters with
+# different local `in-cluster` secrets, not two destinations from one ArgoCD.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-environments
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - environment: production
+            path: argocd/production
+            namespace: platform-production
+            cluster: in-cluster
+  template:
+    metadata:
+      name: "platform-{{environment}}"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/guilhermegreco/platform-core
+        path: "{{path}}"
+        helm:
+          valueFiles:
+            - values.yaml
+      destination:
+        name: "{{cluster}}"
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
