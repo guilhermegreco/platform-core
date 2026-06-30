@@ -15,12 +15,12 @@ spec:
         maxApps: string | default={{ .Values.defaults.maxApps | quote }}
         maxDatabases: string | default={{ .Values.defaults.maxDatabases | quote }}
         maxCaches: string | default={{ .Values.defaults.maxCaches | quote }}
-    status:
-      # Must be a CEL expression — current kro rejects literal status values
-      # ("status fields without expressions are not supported"). A constant
-      # expression satisfies that; the tenant has no single underlying resource to
-      # gate on (it fans out namespaces/classes/quotas per environment).
-      ready: ${"true"}
+    # No custom status block: current kro requires every status field to be a CEL
+    # expression that REFERENCES A RESOURCE (it infers the type from a real resource
+    # field). The tenant fans out per-environment collections and has no single
+    # resource to surface, and a constant like ${"true"} is rejected ("instance status
+    # field must refer to a resource"). kro still manages the built-in
+    # status.state/conditions, which is all the Tenant needs.
 
   resources:
     # Namespace per environment
