@@ -16,7 +16,11 @@ spec:
         maxDatabases: string | default={{ .Values.defaults.maxDatabases | quote }}
         maxCaches: string | default={{ .Values.defaults.maxCaches | quote }}
     status:
-      ready: "true"
+      # Must be a CEL expression — current kro rejects literal status values
+      # ("status fields without expressions are not supported"). A constant
+      # expression satisfies that; the tenant has no single underlying resource to
+      # gate on (it fans out namespaces/classes/quotas per environment).
+      ready: ${"true"}
 
   resources:
     # Namespace per environment

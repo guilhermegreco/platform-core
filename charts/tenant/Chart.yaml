@@ -1,6 +1,6 @@
 apiVersion: v2
 name: tenant
-version: 1.2.0
+version: 1.2.1
 appVersion: "1.0.0"
 description: Tenant provisioning - creates namespaces, RBAC, quotas, and network policies per team
 # 1.2.0: forEach uses the current kro array syntax (`- env: ${...}`) instead of the
