@@ -1,5 +1,8 @@
 apiVersion: v2
 name: tenant
-version: 1.1.0
+version: 1.2.0
 appVersion: "1.0.0"
 description: Tenant provisioning - creates namespaces, RBAC, quotas, and network policies per team
+# 1.2.0: forEach uses the current kro array syntax (`- env: ${...}`) instead of the
+# removed object form (`item:`/`collection:`). The old syntax is rejected by current
+# kro ("forEach in body must be of type array"). Found live on a runtime spoke (rt-p5d).
