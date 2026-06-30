@@ -22,8 +22,7 @@ spec:
     # Namespace per environment
     - id: namespaces
       forEach:
-        item: env
-        collection: ${schema.spec.environments}
+        - env: ${schema.spec.environments}
       template:
         apiVersion: v1
         kind: Namespace
@@ -46,8 +45,7 @@ spec:
     # platform.ingress.className = "<namespace>-alb".
     - id: ingressclassparams
       forEach:
-        item: env
-        collection: ${schema.spec.environments}
+        - env: ${schema.spec.environments}
       template:
         apiVersion: eks.amazonaws.com/v1
         kind: IngressClassParams
@@ -64,8 +62,7 @@ spec:
 
     - id: ingressclass
       forEach:
-        item: env
-        collection: ${schema.spec.environments}
+        - env: ${schema.spec.environments}
       template:
         apiVersion: networking.k8s.io/v1
         kind: IngressClass
@@ -85,8 +82,7 @@ spec:
     # ResourceQuota per namespace
     - id: quotas
       forEach:
-        item: env
-        collection: ${schema.spec.environments}
+        - env: ${schema.spec.environments}
       template:
         apiVersion: v1
         kind: ResourceQuota
@@ -104,8 +100,7 @@ spec:
     # Role for workload management
     - id: roles
       forEach:
-        item: env
-        collection: ${schema.spec.environments}
+        - env: ${schema.spec.environments}
       template:
         apiVersion: rbac.authorization.k8s.io/v1
         kind: Role
@@ -129,8 +124,7 @@ spec:
     # RoleBinding for team group
     - id: rolebindings
       forEach:
-        item: env
-        collection: ${schema.spec.environments}
+        - env: ${schema.spec.environments}
       template:
         apiVersion: rbac.authorization.k8s.io/v1
         kind: RoleBinding
@@ -149,8 +143,7 @@ spec:
     # NetworkPolicy (deny ingress from other teams)
     - id: netpol
       forEach:
-        item: env
-        collection: ${schema.spec.environments}
+        - env: ${schema.spec.environments}
       template:
         apiVersion: networking.k8s.io/v1
         kind: NetworkPolicy
