@@ -20,6 +20,16 @@ kind: Tenant
 metadata:
   name: demo
   namespace: platform-system
+  annotations:
+    # ORDERING: the tenant RGD (this umbrella) and this Tenant CR ship together, but kro
+    # registers the Tenant CRD asynchronously AFTER reconciling the RGD. Two ArgoCD sync
+    # options make that safe:
+    #   - sync-wave "1": apply the RGDs (default wave 0) BEFORE this CR.
+    #   - SkipDryRunOnMissingResource: skip the dry-run that would otherwise fail with
+    #     `Tenant.kro.run "" not found` before the CRD exists; ArgoCD retries the apply
+    #     until kro has registered the CRD.
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   team: demo
   environments:
