@@ -15,3 +15,10 @@ dependencies:
   - name: team-pubsub
     version: "1.0.6"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
+  # The tenant RGD: lets the runtime onboard teams locally (namespace + per-namespace
+  # IngressClass/IngressClassParams for ALB grouping + quota/RBAC/NetworkPolicy). Needed
+  # for the app-loop ingress slice — a route.enabled app references the per-namespace
+  # IngressClass this RGD creates (team-<team>-<env>-alb).
+  - name: tenant
+    version: "1.1.0"
+    repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"

@@ -75,8 +75,13 @@ spec:
                 value: "{{`{{index .metadata.annotations \"platform.io/ingress-domain\"}}`}}"
               - name: platform.ingress.scheme
                 value: "{{`{{index .metadata.annotations \"platform.io/ingress-scheme\"}}`}}"
+              # className is DERIVED per-namespace, not taken from the spoke-wide topology
+              # annotation: the tenant RGD names each namespace's IngressClass
+              # team-<team>-<env>-alb, which equals "<namespace>-alb" (namespace =
+              # team-<team>-<env>). So every app in a tenant namespace references that
+              # namespace's own class → all its Ingresses merge onto ONE per-namespace ALB.
               - name: platform.ingress.className
-                value: "{{`{{index .metadata.annotations \"platform.io/ingress-class-name\"}}`}}"
+                value: "{{`{{.path.basename}}`}}-alb"
               - name: platform.ingress.groupPrefix
                 value: "{{`{{index .metadata.annotations \"platform.io/ingress-group-prefix\"}}`}}"
       destination:
