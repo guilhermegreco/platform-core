@@ -20,5 +20,5 @@ dependencies:
   # for the app-loop ingress slice — a route.enabled app references the per-namespace
   # IngressClass this RGD creates (team-<team>-<env>-alb).
   - name: tenant
-    version: "1.2.1"
+    version: "1.2.2"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
