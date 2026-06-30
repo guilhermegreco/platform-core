@@ -71,7 +71,7 @@ The single account means staging and production runtimes are **co-located** — 
 
 ## 3. Phased Plan
 
-**Progress: Phases 1–4 DONE + validated live. Phase 5 PARTIAL but the core is now VALIDATED LIVE END-TO-END on rt-p5c: hub→spoke capability-RGD delivery + kro→ACK permission (via an `adopt-or-create` access-entry policy — see the ⚠️ correction; the earlier rt-p5b create-mode record was WRONG) + the runtime's-own-ArgoCD app loop (the spoke's own ArgoCD deployed `platform-app` locally — Deployment+Service created). Remaining: a non-nginx demo image (readiness) + the per-namespace ingress slice inside the spoke. Phase 6 (fan out) after.**
+**Progress: Phases 1–5 DONE + validated live. Phase 5's FULL developer→platform→AWS loop is VALIDATED END-TO-END on rt-p5d: a `Runtime{staging}` CR → hub provisions the spoke → spoke's own ArgoCD onboards a Tenant + deploys the real sample-app → the app provisions RDS via the capability chart and connects to it (`/db` → PostgreSQL 16.14) → Ingress merges onto a per-namespace ALB. kro→ACK + spoke-ArgoCD + app-IAM all granted via `adopt-or-create` access entries/CRs (the recurring fixed-name-resource lesson). Next: Phase 6 (fan out: stag+prod CPs, dev/prod runtimes).**
 
 | Phase | Status |
 |---|---|
@@ -79,7 +79,7 @@ The single account means staging and production runtimes are **co-located** — 
 | 2 — hub repeatable from code | ✅ done (EKS IAM #4, ECR #4, dead appset CP#5, bootstrap.sh #6, TF dedup #28) |
 | 3 — build `platform-capability-eks` (Runtime RGD) | ✅ done + proven end-to-end (1 `Runtime` CR → cluster + kro/ack/argocd-with-IdC + AccessEntry + 2 secrets → ACTIVE; teardown ordered correctly) |
 | 4 — wire CI | ✅ done (ACK EKS pin + CRDs, #29) |
-| 5 — provision runtime + deliver platform layer | 🟡 partial — core VALIDATED LIVE on rt-p5c (hub→spoke delivery + kro→ACK via adopt-or-create access-entry + app loop: spoke's own ArgoCD deployed platform-app locally). Remaining: non-nginx demo image + per-namespace ingress slice |
+| 5 — provision runtime + deliver platform layer | ✅ done — FULL LOOP validated live on rt-p5d (Tenant onboarding → spoke ArgoCD deploys real sample-app → Database→RDS, app `/db`→PostgreSQL 16.14 → per-namespace ALB). All grants via `adopt-or-create`. |
 | 6 — fan out | later |
 
 ### Phase 2 — Make the hub repeatable from code (no new capability yet)  ✅ DONE
@@ -121,7 +121,7 @@ The single account means staging and production runtimes are **co-located** — 
 **New:** EKS pin + CRD lines in the action; the EKS fake-status payloads.
 **Exit check:** A PR to `platform-capability-eks` runs `lint→tier1` green; merge runs `real-infra-test` (creates a real spoke, asserts ACTIVE, deletes) and publishes `team-eks` to ECR.
 
-### Phase 5 — Provision the first runtime + deliver the platform layer  🟡 PARTIAL (hub→spoke capability delivery PROVEN; kro→ACK RESOLVED; app loop BUILT, pending live validation)
+### Phase 5 — Provision the first runtime + deliver the platform layer  ✅ FULL LOOP VALIDATED LIVE (rt-p5d: developer→platform→AWS end-to-end in a hub-provisioned spoke)
 
 **DONE + validated live (rt-p5):** Extended the Runtime RGD with a `platformLayer` Argo CD `Application` (hub ns argocd, `destination: <spoke>`, source = the pinned `platform-core/argocd/runtimes/<env>` umbrella). Created `argocd/runtimes/staging/` (pins team-database/cache/pubsub). Result: one `Runtime` CR → spoke ACTIVE with all 3 capabilities → **the hub's ArgoCD synced the platform layer INTO the spoke → the 3 capability RGDs (database/cache/eventbus) reached `Active` on the spoke.** Hub→spoke platform delivery is proven.
 
@@ -141,7 +141,21 @@ The single account means staging and production runtimes are **co-located** — 
 
 All three are **gated on `runtime.clusterArn`** (injected by the RGD `platformLayer` via `helm.parameters`): empty on a bare `helm template`, so capability-only rendering stays safe. Verified: gate-off renders nothing; gate-on renders both Secrets + the ApplicationSet with ArgoCD's `{{...}}` goTemplate placeholders preserved through Helm.
 
-**Still to do:** (a) a **non-nginx demo image** that serves the readiness path (so `app-sample-app-staging` goes Healthy, not just Synced); (b) the **ingress slice** — a `Tenant`/per-namespace IngressClass inside the spoke so `route.enabled` apps merge onto a per-namespace ALB (the merged-ALB pattern proven on the hub — group.name in IngressClassParams).
+**✅ FULL LOOP VALIDATED LIVE (rt-p5d).** Using the purpose-built test app (`platform-core/examples/sample-app`, a Flask service serving `/ready`+`/db`+`/cache`+`/events`, published to ECR as `sample-app:latest`) with `database.enabled` + `route.enabled`, and a `Tenant{demo}` onboarded via the umbrella, one `Runtime{staging}` CR drove the **entire developer→platform→AWS chain in a hub-provisioned spoke**:
+- **Tenant onboarding** → namespace `team-demo-staging` + per-namespace `IngressClass`/`IngressClassParams` (`scheme=internet-facing`, `group=team-demo-staging`).
+- **Spoke's own ArgoCD** generated `app-team-demo-staging-staging` (**Synced/Healthy**, `destination: in-cluster`), pulled `platform-app` from ECR, injected topology.
+- **Capability injection** → the chart's `Database` CR → kro/ACK provisioned **real RDS** (`available`) in the spoke → `DATABASE_HOST/SECRET_ARN/...` injected → the app's **`/db` returned `PostgreSQL 16.14 connected`** and `/ready` → `{"database":"connected"}`, pod **2/2 Ready**.
+- **Per-namespace ingress** → `Ingress` on `team-demo-staging-alb` got a real **ALB** (`k8s-teamdemostaging-…elb.amazonaws.com`).
+
+**Findings from the full-loop run (each fixed + shipped):**
+- **Tenant CRD-vs-CR sync race** → ArgoCD applied the `Tenant` CR before kro registered its CRD → atomic sync failure. Fix: `sync-wave: "1"` + `SkipDryRunOnMissingResource=true` (#39).
+- **Three kro-strictness rejections of the tenant RGD** (never caught before because the tenant RGD had never actually been deployed — not even on the hub): (1) `forEach` must be the **array** form (`- env: ${...}`), not the old object form (#40); (2) status fields must be **CEL expressions**, not literals (#41); (3) status expressions must **reference a resource** — a constant is rejected, so the custom status block was dropped (kro still manages `state`/`conditions`) (#42). Bumped tenant 1.1.0→1.2.2.
+- **`platform-app` IAM Role/Policy were create-mode** → on a pre-existing (account-global) role the ACK CR hit `ACK.Terminal: Resource already exists`, so `spec.policies` never reconciled → the workload policy wasn't attached → `secretsmanager:GetSecretValue` **AccessDenied** → `/ready` 503. Fix: `adopt-or-create` on `role.yaml` + `policy.yaml` (#43) — the **same class of bug as the kro/argocd access entries**. (Operational note: after a late policy attach, a running pod keeps stale pod-identity creds — `UnrecognizedClientException` — until restarted; adopt-or-create attaches on first sync, avoiding that.)
+- **Per-namespace className is DERIVED** in the appset (`<namespace>-alb`), matching the tenant RGD's class — not a spoke-wide annotation.
+
+**The recurring lesson:** every fixed-name AWS resource an RGD/chart creates (access entries, IAM roles, IAM policies) needs `adopt-or-create`, because the managed layer (EKS capabilities, prior runs) often created it already. This bit three separate places (kro entry, argocd entry, app IAM).
+
+**Harden-later (carried):** non-prefix-aware demo app means external ALB routing at `/sample-app` 404s (Auto Mode no-rewrite — the slice proves the **ALB merge + readiness**, not prefix routing); per-cluster IAM role/policy names so distinct runtimes don't share one account-global role; least-privilege access policies.
 
 **Original plan steps (for reference):**
 1. Create the **new "platform" GitOps repo** with `control-plane/<env>/`, `runtimes/<env>/`, `apps/<env>/<app>/`. **Partition by CODEOWNERS** so a developer app PR cannot touch control-plane/runtime config.
