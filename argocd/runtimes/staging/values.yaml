@@ -9,6 +9,12 @@ team-cache:
 team-pubsub:
   defaults:
     clusterName: plat-cp-cluster
+# The tenant RGD's per-namespace IngressClassParams scheme. internet-facing so the demo
+# ALB is reachable for inspection (the ALB scheme lives in IngressClassParams, not on the
+# Ingress — Auto Mode ignores the annotation; see platform-app ingress template).
+tenant:
+  defaults:
+    ingressScheme: internet-facing
 
 # --- App loop (the runtime's OWN ArgoCD deploys platform-app locally) ---
 #
@@ -24,12 +30,15 @@ runtime:
   region: ""
   environment: staging
   accountId: ""
-  # Ingress edge for the spoke. Shared with the control-plane VPC for the PoC; these
-  # feed platform.ingress.* injection so an app with route.enabled works once the
-  # tenant RGD has created its per-namespace IngressClass (ingress wiring is a later
-  # increment — the demo app ships route-disabled, so these are carried but unused).
+  # Ingress edge for the spoke. Feeds platform.ingress.* injection so a route.enabled
+  # app gets an Ingress on its per-namespace IngressClass (created by the tenant RGD).
+  # The per-namespace className is DERIVED in the appset (<namespace>-alb), so it is NOT
+  # set here; domain/scheme/groupPrefix are the spoke-wide edge config.
+  #   - domain: per-namespace FQDN is "<namespace>.<domain>". For the PoC this is a
+  #     placeholder (no real DNS/cert wired yet); the slice proves the ALB MERGE, not
+  #     public DNS resolution.
+  #   - scheme: internet-facing so the demo ALB is reachable for inspection.
   ingress:
-    domain: ""
+    domain: "staging.runtime.platform"
     scheme: internet-facing
-    className: ""
-    groupPrefix: ""
+    groupPrefix: "runtime"
