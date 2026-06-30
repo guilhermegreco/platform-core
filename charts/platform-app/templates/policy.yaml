@@ -26,6 +26,10 @@ metadata:
   labels:
     platform.io/team: {{ .Values.team }}
     platform.io/workload: {{ .Values.name }}
+  annotations:
+    # Account-global IAM policy name → adopt an existing one rather than fail create
+    # ("already exists") on a re-run. Same rationale as the Role (see role.yaml).
+    services.k8s.aws/adoption-policy: "adopt-or-create"
 spec:
   name: {{ .Values.name }}-workload-policy
   policyDocument: |

@@ -6,6 +6,17 @@ metadata:
   labels:
     platform.io/team: {{ .Values.team }}
     platform.io/workload: {{ .Values.name }}
+  annotations:
+    # The IAM role name ({name}-role) is account-global (IAM is not cluster-scoped), so on
+    # any re-run — or a same-named app in another runtime — the AWS role already exists and
+    # a create-mode ACK CR hits `ACK.Terminal: Resource already exists`, never reconciling
+    # spec.policies → the workload policy is NOT attached → the pod gets AccessDenied on its
+    # DB secret / SQS / cache. Validated live on rt-p5d: a pre-existing role left the policy
+    # unattached and /db failed with AccessDeniedException until the role was recreated.
+    # adopt-or-create makes ACK adopt the existing role and reconcile the policy attachment.
+    # (Harden later: qualify the role name per-cluster so distinct runtimes don't collide on
+    # one account-global role.)
+    services.k8s.aws/adoption-policy: "adopt-or-create"
 spec:
   name: {{ .Values.name }}-role
   assumeRolePolicyDocument: |
