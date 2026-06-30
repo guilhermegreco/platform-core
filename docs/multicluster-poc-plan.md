@@ -71,7 +71,7 @@ The single account means staging and production runtimes are **co-located** — 
 
 ## 3. Phased Plan
 
-**Progress: Phases 1–4 DONE + validated live. Phase 5 PARTIAL — hub→spoke capability-RGD delivery is proven (capability RGDs reached `Active` inside a real spoke); the remaining gap is wiring the spoke's kro→ACK in-cluster RBAC so a runtime can expand capability CRs locally, then the runtime's-own-ArgoCD app loop. Phase 6 (fan out) after.**
+**Progress: Phases 1–4 DONE + validated live. Phase 5 PARTIAL — hub→spoke capability-RGD delivery is proven (capability RGDs reached `Active` inside a real spoke) AND the kro→ACK permission gap is now resolved via an access-entry policy (validated live: a `Database` CR in the spoke expanded → RDS reached `available`). The remaining gap is the runtime's-own-ArgoCD app loop. Phase 6 (fan out) after.**
 
 | Phase | Status |
 |---|---|
@@ -79,7 +79,7 @@ The single account means staging and production runtimes are **co-located** — 
 | 2 — hub repeatable from code | ✅ done (EKS IAM #4, ECR #4, dead appset CP#5, bootstrap.sh #6, TF dedup #28) |
 | 3 — build `platform-capability-eks` (Runtime RGD) | ✅ done + proven end-to-end (1 `Runtime` CR → cluster + kro/ack/argocd-with-IdC + AccessEntry + 2 secrets → ACTIVE; teardown ordered correctly) |
 | 4 — wire CI | ✅ done (ACK EKS pin + CRDs, #29) |
-| 5 — provision runtime + deliver platform layer | 🟡 partial (hub→spoke capability delivery PROVEN; kro→ACK RBAC wiring on spoke is the remaining gap) |
+| 5 — provision runtime + deliver platform layer | 🟡 partial (hub→spoke capability delivery PROVEN; kro→ACK permission RESOLVED via access-entry policy, Database→RDS available live; runtime's-own-ArgoCD app loop is the remaining gap) |
 | 6 — fan out | later |
 
 ### Phase 2 — Make the hub repeatable from code (no new capability yet)  ✅ DONE
@@ -121,13 +121,17 @@ The single account means staging and production runtimes are **co-located** — 
 **New:** EKS pin + CRD lines in the action; the EKS fake-status payloads.
 **Exit check:** A PR to `platform-capability-eks` runs `lint→tier1` green; merge runs `real-infra-test` (creates a real spoke, asserts ACTIVE, deletes) and publishes `team-eks` to ECR.
 
-### Phase 5 — Provision the first runtime + deliver the platform layer  🟡 PARTIAL (hub→spoke capability delivery PROVEN; one RBAC gap found)
+### Phase 5 — Provision the first runtime + deliver the platform layer  🟡 PARTIAL (hub→spoke capability delivery PROVEN; kro→ACK permission RESOLVED via access-entry policy)
 
 **DONE + validated live (rt-p5):** Extended the Runtime RGD with a `platformLayer` Argo CD `Application` (hub ns argocd, `destination: <spoke>`, source = the pinned `platform-core/argocd/runtimes/<env>` umbrella). Created `argocd/runtimes/staging/` (pins team-database/cache/pubsub). Result: one `Runtime` CR → spoke ACTIVE with all 3 capabilities → **the hub's ArgoCD synced the platform layer INTO the spoke → the 3 capability RGDs (database/cache/eventbus) reached `Active` on the spoke.** Hub→spoke platform delivery is proven.
 
-**FINDING — kro→ACK RBAC gap on a fresh spoke (the remaining Phase-5 work):** creating a `Database` CR *in the spoke* failed: the spoke's managed **kro** controller SA (`plat-cp-capability-kro/KRO`) is `forbidden` to get/create the ACK CRs (`securitygroups.ec2.services.k8s.aws`, etc.). On the hub this RBAC exists (capabilities were configured together); a freshly-bootstrapped spoke installs kro + ACK but does NOT auto-wire the in-cluster RBAC between them. **Fix:** the platform layer the hub deploys into the spoke must also include a `ClusterRole`+`ClusterRoleBinding` granting the kro capability SA access to the `*.services.k8s.aws` API groups. (In-cluster RBAC, not AWS IAM.) This is the next concrete step to make a runtime fully self-serve.
+**RESOLVED — kro→ACK permission gap on a fresh spoke (validated live on rt-p5b, then torn down clean):** creating a `Database` CR *in the spoke* initially failed — the spoke's managed **kro** capability principal could not create the ACK CRs (`securitygroups.ec2.services.k8s.aws`, etc.). EKS Capabilities are a *managed service* whose access is governed by **EKS access entries**, not hand-rolled Kubernetes RBAC; the auto-created kro access entry carries only `AmazonEKSKROPolicy` (manages `kro.run` + CRDs), which does **not** cover the underlying ACK resource API groups. **Fix (Option B1, access-entry-native — the chosen mechanism):** the Runtime RGD emits an ACK `AccessEntry` CR (`id: kroAccessPolicy`) for the kro capability principal that associates the **`AmazonEKSClusterAdminPolicy`** cluster-access-policy (`spec.accessPolicies[].policyARN`, `accessScope.type: cluster`). Ordered after the kro capability is `ACTIVE` (its entry must exist first) via a status-reference annotation. **Validated live on rt-p5b:** with ONLY this access-entry policy and **no ClusterRoleBinding**, a `Database` CR in the spoke expanded → kro created the ACK `SecurityGroup` → RDS reached `available`. The interim CRB approach (Option A) was removed (`platform-core` #34); B1 shipped in `platform-capability-eks` #1.
 
-**Still to do (the original Phase-5 app loop):** wire the runtime's OWN ArgoCD to deploy `platform-app` (reusing the two-secret topology injection §7 + the merged per-namespace IngressClass) — gated on the RBAC fix above so the app's `Database` etc. can actually expand in the spoke.
+- **Why not a CRB:** the user's directive — "I want to have access-entry policies as much as I can, because I'm using EKS Capability as a managed service." AWS/ACK docs confirmed `AccessEntry.accessPolicies` *is* the `associate-access-policy` mechanism in CR form, so the grant stays in the managed-service plane rather than drifting into in-cluster RBAC.
+- **Tradeoff (recorded):** ACK takes ownership of the kro capability's access entry — it replaces the auto-attached `AmazonEKSKROPolicy` with this policy set. `AmazonEKSClusterAdminPolicy` is a superset, so kro keeps everything it needs. Also: ACK **adoption** of the pre-existing entry does NOT apply the desired policies (adoption imports current state); a **non-adoption** `AccessEntry` CR is what actually applies them.
+- **Harden later:** swap cluster-admin for a least-privilege cluster-access-policy (or a scoped entry) covering only `kro.run` + `*.services.k8s.aws`. See §8.
+
+**Still to do (the original Phase-5 app loop):** wire the runtime's OWN ArgoCD to deploy `platform-app` (reusing the two-secret topology injection §7 + the merged per-namespace IngressClass). The kro→ACK permission is no longer a blocker — a developer app's `Database`/`Cache`/`EventBus` now expands in the spoke.
 
 **Original plan steps (for reference):**
 1. Create the **new "platform" GitOps repo** with `control-plane/<env>/`, `runtimes/<env>/`, `apps/<env>/<app>/`. **Partition by CODEOWNERS** so a developer app PR cannot touch control-plane/runtime config.
@@ -306,6 +310,7 @@ spec:
 | **Single AWS account** (CPs, runtimes, envs co-located) | Just to see the loop work | The PoC will **not** exercise cross-account `AccessEntry`, cross-account ECR pull, or account-boundary isolation — the things most likely to break in a real multi-env rollout. Flag as **non-representative**; plan a follow-on slice with an account boundary between prod and non-prod. |
 | **Single shared VPC, fixed `10.0.0.0/16`, single NAT** (`main.tf:41,48`) | Cost | Per-runtime VPC (or at least per-env) — today all runtimes share fate (one NAT, one CIDR, no network isolation). |
 | **Broad ACK IAM** — `RDS/ElastiCache/SNS/SQS FullAccess` + `IAMFullAccess` + `SecretsManagerReadWrite` (`main.tf:253-281`), plus the new broad `eks:*` | Fast | Scope to least-privilege: constrain `iam:PassRole` to a role-path/tag, `eks:*` to the runtime cluster-name pattern, replace `IAMFullAccess`/`SecretsManagerReadWrite` with inline policies conditioned on the `platform.io/*` tags the resources already carry. `IAMFullAccess`+broad `eks:*` in a shared prod+dev account is a real escalation primitive. |
+| **kro→ACK access-entry policy = `AmazonEKSClusterAdminPolicy`** (Runtime RGD `kroAccessPolicy`, Phase 5) | Proves the access-entry-native grant works end-to-end (Database→RDS available) without in-cluster RBAC | Cluster-admin is far broader than kro needs. Replace with a least-privilege cluster-access-policy (or a scoped access entry) covering only `kro.run` + `*.services.k8s.aws`. Also note ACK co-owns the kro capability's access entry (replaces `AmazonEKSKROPolicy`) — document that ownership so it isn't a surprise on upgrade. |
 | **App-delivery injection mechanism deferred** | Decided at PoC start (§7) | The chosen mechanism (two-secret vs controller) must be the supported, documented golden path, not a one-off. |
 | **`platform-app` topology defaults hardcoded** — `clusterName: plat-cp-cluster`, `accountId: "279051970617"`, `region: us-east-1` (`values.yaml:11-13`) | Injection path overrides them | Any render path that bypasses the injecting ApplicationSet (local `helm template`, tier tests, a not-yet-wired runtime) silently targets the original PoC account → wrong-cluster PodIdentityAssociations. Remove the defaults or fail-closed once every delivery path injects. (`platform.ingress.*` is already empty/injected — not a leak.) |
 | **Local Terraform state** | Single operator | S3 + locking before fan-out (§6.6). |
