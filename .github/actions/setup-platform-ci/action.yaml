@@ -85,6 +85,11 @@ runs:
       run: |
         kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/${{ env.ARGOCD_VERSION }}/manifests/crds/application-crd.yaml
         kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/${{ env.ARGOCD_VERSION }}/manifests/crds/applicationset-crd.yaml
+        # The Runtime RGD emits its spoke-registration + topology Secrets into the `argocd`
+        # namespace (on a real hub the Argo CD capability creates it). The ephemeral CI
+        # cluster has no Argo CD, so create the namespace or kro can't place those Secrets
+        # and the tier2 spoke.yaml assertion hangs to timeout.
+        kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
     - name: Install ACK controllers (real mode)
       if: inputs.mode == 'real'
