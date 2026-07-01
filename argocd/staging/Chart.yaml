@@ -12,3 +12,9 @@ dependencies:
   - name: team-pubsub
     version: "1.0.6"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
+  # The Runtime RGD (kind: Runtime) — lets a control-plane hub provision runtime spokes.
+  # Delivered by the hub's ArgoCD like every other capability, so the hub is fully
+  # GitOps-bootstrapped (no hand-applied kubectl of the Runtime RGD).
+  - name: team-eks
+    version: "0.0.1"
+    repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
