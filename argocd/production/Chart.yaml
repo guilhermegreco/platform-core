@@ -12,3 +12,8 @@ dependencies:
   - name: team-pubsub
     version: "1.0.6"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
+  # The Runtime RGD (kind: Runtime) — the hub provisions runtime spokes. Release-train
+  # controlled like the other production pins; promoted by bumping this version.
+  - name: team-eks
+    version: "0.0.1"
+    repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
