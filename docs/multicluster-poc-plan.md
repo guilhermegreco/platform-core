@@ -184,7 +184,19 @@ Add stag+prod control planes and dev/prod runtimes by re-instantiating Terraform
 - **ArgoCD role ECR perm was out-of-band (codified — platform-control-plane #9):** the argocd capability pulls charts from ECR, but the perm was hand-attached on staging and never in TF → the from-code prod hub got `GetAuthorizationToken AccessDenied`. Now `AmazonEC2ContainerRegistryReadOnly` is attached in Terraform (staging-safe: plan = 1 to add, adopts the existing attachment).
 - **Production umbrella stale pins (platform-core #46):** pinned capability versions that no longer exist in ECR (`team-database:1.1.0` etc.) → `not found`. Bumped to the tested staging pins (release-train promotion).
 
-**Still open for real fan-out (harden-later):** per-env AWS accounts + VPC quota; S3+locking remote state (local state + RETAIN orphans survivors); the Runtime RGD should ship in an umbrella (not hand-applied) so a hub is fully GitOps-bootstrapped; production umbrella `values.yaml` still references `plat-cp-*` subnet/cluster names (fine for a pure hub, harden before local data).
+**Runtime RGD now GitOps-delivered (DONE — the hand-apply gap is closed).** The Runtime RGD (`team-eks`) had been hand-applied on every hub because `team-eks` had *never* published to ECR — its CI failed before publish. Getting the first green publish surfaced **8 sequential CI/onboarding gaps** (the Runtime capability is the first whose CI must compile an Argo CD-referencing RGD *and* create a real EKS cluster):
+1. tier1 lacked Argo CD CRDs → RGD wouldn't compile (platform-core #48)
+2. repo had no AWS CI vars (`ECR_PUSH_ROLE` etc.) → no AWS auth
+3. real-infra used a blind `sleep 15` → CRD-registration race, `no matches for kind "Runtime"` (#49)
+4. Argo CD CRDs were fake-mode-only → real-infra RGD stayed Inactive (#50)
+5. CI role `github-actions-platform` had **no `eks:CreateCluster`** (read-only EKS)
+6. `iam:PassRole` condition missing **`ec2.amazonaws.com`** → Auto Mode `CreateCluster` AccessDenied on the *node-role* PassRole (the real cluster-launch blocker; IAM simulator only reveals it with the ec2 PassedToService context) — fixed live + codified (`platform-control-plane` #12)
+7. ephemeral CI cluster had no `argocd` namespace → the RGD's spoke Secret couldn't land → `spoke.yaml` assertion hung (#51)
+8. first-publish version computed to `..1` (invalid semver — `git describe|sed || echo` masked the empty tag) (#52)
+With all 8 fixed: `real-infra-test` went green (real spoke provisioned to ACTIVE + all 4 assertions + clean teardown) and **`team-eks:0.0.1` published to ECR**. Then pinned into the staging + production umbrellas (#53), so each hub's ArgoCD delivers the Runtime RGD like every other capability. **Verified live:** the staging hub's `platform-staging` app synced the new umbrella and `runtime.kro.run` is now Argo CD-owned (tracking-id `argocd_platform-staging:...runtime.kro.run`), Active. A hub bootstrap is now fully GitOps — no hand-applied `kubectl`.
+- **Known CI-plumbing gap (not blocking):** the `bump-staging` job needs a GitHub App (`app-id`) secret to auto-open the umbrella-bump PR; it's unconfigured, so that job fails for every capability. Umbrella bumps are done by PR in the meantime (as here). Configure the App or swap to a PAT to automate.
+
+**Still open for real fan-out (harden-later):** per-env AWS accounts + VPC quota; S3+locking remote state (local state + RETAIN orphans survivors); production umbrella `values.yaml` still references `plat-cp-*` subnet/cluster names (fine for a pure hub, harden before local data).
 
 ---
 
