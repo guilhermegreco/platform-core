@@ -75,8 +75,14 @@ runs:
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/eks-controller/v${{ env.ACK_EKS_CHART_VERSION }}/config/crd/bases/eks.services.k8s.aws_clusters.yaml
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/eks-controller/v${{ env.ACK_EKS_CHART_VERSION }}/config/crd/bases/eks.services.k8s.aws_capabilities.yaml
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/eks-controller/v${{ env.ACK_EKS_CHART_VERSION }}/config/crd/bases/eks.services.k8s.aws_accessentries.yaml
-        # Argo CD CRDs (Application/ApplicationSet) — the Runtime RGD's platformLayer is an
-        # Argo CD Application; kro can't accept the RGD without this schema present.
+
+    # Argo CD CRDs (Application/ApplicationSet) — schema only, no controller. Installed in
+    # BOTH modes: any RGD that emits an Argo CD Application (the Runtime RGD's platformLayer)
+    # needs this schema present or kro can't accept the graph ("cannot resolve group version
+    # argoproj.io/v1alpha1") and the RGD stays Inactive — in fake tier1 AND real-infra alike.
+    - name: Install Argo CD CRDs (both modes)
+      shell: bash
+      run: |
         kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/${{ env.ARGOCD_VERSION }}/manifests/crds/application-crd.yaml
         kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/${{ env.ARGOCD_VERSION }}/manifests/crds/applicationset-crd.yaml
 
