@@ -251,7 +251,12 @@ jobs:
       - name: Calculate version from PR label
         id: version
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          # NOTE: the `|| echo 0.0.0` must guard the WHOLE pipeline, not just `sed` — with
+          # no tags, `git describe` fails but `sed` still exits 0, leaving LAST_TAG empty →
+          # awk produces "..1" → "invalid semantic version" on the first-ever publish. Take
+          # the tag first, then default when empty.
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+          LAST_TAG=${LAST_TAG:-0.0.0}
           LABEL=$(gh pr list --state merged --limit 1 --json labels --jq '.[0].labels[].name' | grep "release/" | head -1 || echo "release/patch")
           case $LABEL in
             release/major) NEW_VERSION=$(echo $LAST_TAG | awk -F. '{print $1+1".0.0"}') ;;
