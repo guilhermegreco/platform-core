@@ -112,7 +112,21 @@ jobs:
             echo "No previous version in ECR (first deploy) — using current RGD"
             helm template test ${{ inputs.chart-path }} | kubectl apply -f -
           fi
-          sleep 15
+
+          # Wait for the RGD to become Active — kro registers the instance CRD
+          # (e.g. Runtime/Database) ASYNCHRONOUSLY after accepting the graph. A fixed
+          # sleep is a race: heavier RGDs (the EKS Runtime RGD validates an Argo CD
+          # Application + cross-resource CEL) register their CRD slower than the ~15s that
+          # sufficed for simple data capabilities, so Chainsaw's create-instance hit
+          # `no matches for kind "Runtime" in version kro.run/v1alpha1`. Gate on Active,
+          # then confirm the CRD is actually served before Chainsaw applies the instance.
+          RGD="${{ inputs.capability-name }}.kro.run"
+          kubectl wait "rgd/${RGD}" --for=jsonpath='{.status.state}'=Active --timeout=120s
+          KIND=$(kubectl get "rgd/${RGD}" -o jsonpath='{.spec.schema.kind}')
+          for i in $(seq 1 30); do
+            kubectl get crd -o name | grep -qi "${KIND,,}s.kro.run" && break
+            sleep 4
+          done
 
       - name: Generate Phase 1 Chainsaw test (create + wait)
         run: |
