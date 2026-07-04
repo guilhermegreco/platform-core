@@ -7,18 +7,18 @@ metadata:
     platform.io/team: {{ .Values.team }}
     platform.io/workload: {{ .Values.name }}
   annotations:
-    # The IAM role name ({name}-role) is account-global (IAM is not cluster-scoped), so on
-    # any re-run — or a same-named app in another runtime — the AWS role already exists and
-    # a create-mode ACK CR hits `ACK.Terminal: Resource already exists`, never reconciling
-    # spec.policies → the workload policy is NOT attached → the pod gets AccessDenied on its
-    # DB secret / SQS / cache. Validated live on rt-p5d: a pre-existing role left the policy
-    # unattached and /db failed with AccessDeniedException until the role was recreated.
-    # adopt-or-create makes ACK adopt the existing role and reconcile the policy attachment.
-    # (Harden later: qualify the role name per-cluster so distinct runtimes don't collide on
-    # one account-global role.)
+    # The AWS IAM role name (spec.name) is account-global (IAM is not cluster-scoped). It is
+    # now qualified per-cluster via platform-app.roleName (<clusterName>-<name>-role) so two
+    # runtimes running a same-named app no longer resolve to ONE account-global role — see
+    # _helpers.tpl. adopt-or-create still handles the same-cluster re-run case: on a re-apply
+    # the role already exists, and a create-mode ACK CR would hit `ACK.Terminal: Resource
+    # already exists` and never reconcile spec.policies → the workload policy is NOT attached
+    # → the pod gets AccessDenied on its DB secret / SQS / cache (validated live on rt-p5d:
+    # /db failed with AccessDeniedException until the role was recreated). adopt-or-create
+    # makes ACK adopt the existing role and reconcile the policy attachment.
     services.k8s.aws/adoption-policy: "adopt-or-create"
 spec:
-  name: {{ .Values.name }}-role
+  name: {{ include "platform-app.roleName" . }}
   assumeRolePolicyDocument: |
     {
       "Version": "2012-10-17",
@@ -30,5 +30,5 @@ spec:
     }
   {{- if or .Values.database.enabled .Values.events.enabled .Values.cache.enabled }}
   policies:
-    - {{ printf "arn:aws:iam::%s:policy/%s-workload-policy" (.Values.accountId | toString) .Values.name }}
+    - {{ printf "arn:aws:iam::%s:policy/%s" (.Values.accountId | toString) (include "platform-app.policyName" .) }}
   {{- end }}

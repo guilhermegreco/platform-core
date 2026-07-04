@@ -10,4 +10,5 @@ spec:
   clusterName: {{ .Values.clusterName }}
   namespace: {{ .Values.namespace }}
   serviceAccount: {{ .Values.name }}-sa
-  roleARN: {{ printf "arn:aws:iam::%s:role/%s-role" (.Values.accountId | toString) .Values.name }}
+  # roleARN must match the per-cluster-qualified role minted by role.yaml (platform-app.roleName).
+  roleARN: {{ printf "arn:aws:iam::%s:role/%s" (.Values.accountId | toString) (include "platform-app.roleName" .) }}
