@@ -66,6 +66,12 @@ runs:
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/rds-controller/v${{ env.ACK_RDS_CHART_VERSION }}/config/crd/bases/rds.services.k8s.aws_dbinstances.yaml
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/rds-controller/v${{ env.ACK_RDS_CHART_VERSION }}/config/crd/bases/rds.services.k8s.aws_dbparametergroups.yaml
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/iam-controller/v${{ env.ACK_IAM_CHART_VERSION }}/config/crd/bases/iam.services.k8s.aws_policies.yaml
+        # iam.Role CRD: the Runtime RGD (platform-capability-eks) self-mints the spoke's own
+        # plat-rt-* IAM roles as iam.Role CRs. Without this CRD, kro can't resolve the schema
+        # ("cannot resolve group version kind iam.services.k8s.aws/v1alpha1, Kind=Role") and
+        # the RGD stays Inactive in fake tier1. (Only Policy was installed before — the Role
+        # dependency arrived when the RGD moved to self-minting per-spoke roles.)
+        kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/iam-controller/v${{ env.ACK_IAM_CHART_VERSION }}/config/crd/bases/iam.services.k8s.aws_roles.yaml
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/elasticache-controller/v${{ env.ACK_ELASTICACHE_CHART_VERSION }}/config/crd/bases/elasticache.services.k8s.aws_replicationgroups.yaml
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/sns-controller/v${{ env.ACK_SNS_CHART_VERSION }}/config/crd/bases/sns.services.k8s.aws_topics.yaml
         kubectl apply -f https://raw.githubusercontent.com/aws-controllers-k8s/sns-controller/v${{ env.ACK_SNS_CHART_VERSION }}/config/crd/bases/sns.services.k8s.aws_subscriptions.yaml
