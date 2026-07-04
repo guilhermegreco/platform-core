@@ -28,10 +28,11 @@ metadata:
     platform.io/workload: {{ .Values.name }}
   annotations:
     # Account-global IAM policy name → adopt an existing one rather than fail create
-    # ("already exists") on a re-run. Same rationale as the Role (see role.yaml).
+    # ("already exists") on a re-run. Same rationale as the Role (see role.yaml). spec.name
+    # is qualified per-cluster (platform-app.policyName) so distinct runtimes don't collide.
     services.k8s.aws/adoption-policy: "adopt-or-create"
 spec:
-  name: {{ .Values.name }}-workload-policy
+  name: {{ include "platform-app.policyName" . }}
   policyDocument: |
     {
       "Version": "2012-10-17",
