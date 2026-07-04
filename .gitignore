@@ -9,4 +9,9 @@
 # Python
 __pycache__/
 *.pyc
-charts/
+# Helm downloads dependency charts into a `charts/` subdir of each umbrella
+# (argocd/staging, argocd/production, argocd/runtimes/*) on `helm dep update` —
+# those are build artifacts, not source. Ignore them WITHOUT swallowing the
+# top-level source charts (charts/platform-app, charts/tenant), which a bare
+# `charts/` rule wrongly matched (it blocked committing charts/platform-app/_helpers.tpl).
+argocd/**/charts/
