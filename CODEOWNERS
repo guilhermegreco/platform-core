@@ -1,0 +1,37 @@
+# CODEOWNERS — platform-core
+#
+# Encodes separation-of-duties for the platform's GitOps root and developer chart.
+# GitHub requires these owners to review (and, with branch protection "Require
+# review from Code Owners" enabled, APPROVE) any PR touching the matched paths —
+# including the bot-generated staging bump PR from the capability pipeline. This
+# is the release-captain gate that stops an unreviewed capability version from
+# reaching staging/production. See
+# .github/workflows/capability-pipeline.yaml (bump-staging job) for the rationale.
+#
+# Owner is a placeholder — replace `@guilhermegreco` with the platform team's
+# GitHub team handle (e.g. `@guilhermegreco/platform-team`) once it exists.
+#
+# HUMAN FOLLOW-UP (cannot be done in this repo alone): enable branch protection
+# on `main` with "Require a pull request before merging", "Require review from
+# Code Owners", and required status checks. Without protection, CODEOWNERS is
+# advisory only and the bot self-merge is not actually blocked.
+
+# All ArgoCD GitOps state (env umbrellas, appsets, apps, ingress, runtimes) —
+# the release captain owns what any cluster syncs.
+/argocd/            @guilhermegreco
+/argocd/**          @guilhermegreco
+
+# Production umbrella is the highest-blast-radius path; called out explicitly so
+# it stays owned even if a broader rule is ever relaxed. (Later, more-specific
+# entries win in CODEOWNERS, so keep this after the general argocd rule.)
+/argocd/production/     @guilhermegreco
+/argocd/production/**   @guilhermegreco
+
+# Developer-facing + platform-owned Helm charts (platform-app, tenant).
+/charts/            @guilhermegreco
+/charts/**          @guilhermegreco
+
+# The governed CI pipeline + pinned tool versions define what every capability
+# repo runs; changes here are effectively org-wide.
+/.github/           @guilhermegreco
+/.github/**         @guilhermegreco

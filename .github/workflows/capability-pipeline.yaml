@@ -1,3 +1,32 @@
+# Reusable capability pipeline (governed by the platform team).
+#
+# ── Supply-chain pinning (production hardening) ────────────────────────────────
+# Capability caller workflows reference this reusable workflow as
+# `guilhermegreco/platform-core/.github/workflows/capability-pipeline.yaml@main`.
+# `@main` is a MOVING ref: a push to platform-core main instantly changes what
+# every capability pipeline executes, with no review gate in the calling repo.
+# RECOMMENDATION (must be applied in the CAPABILITY repos, out of scope for this
+# PR which can only touch platform-core): pin the caller `uses:` to an immutable
+# git tag or full commit SHA (e.g. `@v1.4.0` or `@<40-char-sha>`) and bump it via
+# a reviewed PR. The two internal `uses:` refs to the setup-platform-ci composite
+# action below are `@main` for the same reason and should be pinned to a tag/SHA
+# once this workflow itself is tag-released. Dependabot / renovate can automate
+# the bumps while keeping the review gate.
+#
+# ── AWS credential separation (production hardening) ───────────────────────────
+# This workflow assumes AWS roles for two DISTINCT trust levels:
+#   * publish            → push Helm charts + git tags        (ECR write only)
+#   * real-infra-test    → provision/destroy real AWS infra   (broad RDS/EC2/…/IAM)
+# Historically all jobs used a single `vars.ECR_PUSH_ROLE`, which forced the
+# narrow publish path to carry (or share a role with) broad provisioning
+# permissions. The jobs below now read SEPARATE role vars:
+#   * publish         → vars.ECR_PUBLISH_ROLE  (fallback: vars.ECR_PUSH_ROLE)
+#   * real-infra-test → vars.REAL_INFRA_ROLE   (fallback: vars.ECR_PUSH_ROLE)
+# Fallbacks preserve back-compat for repos that have not yet defined the split
+# vars. HUMAN FOLLOW-UP (control-plane / out-of-band, cannot be done here):
+# create two least-privilege IAM roles — a narrow ECR-only role for publishing,
+# and a scoped provisioning role for real-infra-test — then set the new repo/org
+# `vars` so the fallbacks stop being used.
 name: Capability Pipeline
 on:
   workflow_call:
@@ -25,6 +54,16 @@ on:
         required: false
         type: string
         default: "5m"
+      # Production hardening: gate the bot self-merge of the staging bump PR.
+      # Default `true` KEEPS the current operating model (the pipeline opens AND
+      # auto-merges the staging bump) so this change is non-breaking. Set to
+      # `false` in a caller to make the pipeline OPEN the PR but leave the merge
+      # to a human (or to branch protection + CODEOWNERS review) — see the
+      # bump-staging job and CODEOWNERS for the recommended separation-of-duties.
+      auto-merge-staging-bump:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   lint:
@@ -75,7 +114,10 @@ jobs:
       - uses: azure/setup-helm@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.ECR_PUSH_ROLE }}
+          # Scoped provisioning role: creates/destroys real AWS infra (RDS, EC2,
+          # ElastiCache, SNS/SQS, IAM for the resources under test). Falls back to
+          # ECR_PUSH_ROLE for back-compat until the split role is provisioned.
+          role-to-assume: ${{ vars.REAL_INFRA_ROLE || vars.ECR_PUSH_ROLE }}
           aws-region: us-east-1
 
       - name: Setup platform CI (real)
@@ -244,7 +286,9 @@ jobs:
           fetch-depth: 0
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.ECR_PUSH_ROLE }}
+          # Narrow ECR-write role: only needs ecr push (chart publish). Falls back
+          # to ECR_PUSH_ROLE for back-compat until a dedicated ECR-only role exists.
+          role-to-assume: ${{ vars.ECR_PUBLISH_ROLE || vars.ECR_PUSH_ROLE }}
           aws-region: us-east-1
       - uses: azure/setup-helm@v4
 
@@ -324,7 +368,22 @@ jobs:
           yq -i "(.dependencies[] | select(.name == \"$CHART_NAME\")).version = \"$VERSION\"" argocd/staging/Chart.yaml
           cat argocd/staging/Chart.yaml
 
-      - name: Create and merge PR
+      # Production hardening — separation of duties on the staging bump.
+      #
+      # A GitHub App bot both OPENS and (by default) SQUASH-MERGES this PR into
+      # platform-core `main`. That is a self-merge with no human review of what
+      # lands in the release-captain's GitOps root. Two defenses are RECOMMENDED
+      # and are complementary to the `auto-merge-staging-bump` input below:
+      #   1. Branch protection on `main` requiring PR review + status checks, so
+      #      even the bot's PR needs an approval before it can merge.
+      #   2. CODEOWNERS (see /CODEOWNERS in this repo) making argocd/** and
+      #      charts/** platform-team-owned, so the release captain reviews every
+      #      capability version that reaches staging/production.
+      # NOTE: if branch protection requires review, the bot self-merge below will
+      # be BLOCKED — that is the intended end state. Until protection is enabled,
+      # `auto-merge-staging-bump: true` (default) preserves today's behavior. Set
+      # the input to `false` to open the PR and hand the merge to a human.
+      - name: Create staging bump PR
         run: |
           VERSION=$(echo "${{ needs.publish.outputs.version }}" | sed "s/^v//")
           CHART_NAME="${{ steps.chart-name.outputs.chart-name }}"
@@ -338,6 +397,18 @@ jobs:
           gh pr create --title "chore(staging): bump $CHART_NAME to $VERSION" \
             --body "Auto-generated by capability pipeline after Tier 2 passed." \
             --base main
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Auto-merge staging bump PR
+        if: inputs.auto-merge-staging-bump
+        run: |
+          cd platform-core
+          # Bot self-merge. Left ON by default to keep the current operating
+          # model non-breaking; a human-review gate is preferred (see comment
+          # above + CODEOWNERS). If branch protection requires review this step
+          # will fail intentionally — flip `auto-merge-staging-bump: false` in
+          # the caller once a reviewer/auto-approval flow is in place.
           gh pr merge --squash --delete-branch
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
