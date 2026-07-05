@@ -16,5 +16,5 @@ dependencies:
   # Delivered by the hub's ArgoCD like every other capability, so the hub is fully
   # GitOps-bootstrapped (no hand-applied kubectl of the Runtime RGD).
   - name: team-eks
-    version: "0.0.4"
+    version: "0.0.5"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
