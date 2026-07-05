@@ -4,16 +4,16 @@ version: 0.0.0
 description: Platform capabilities deployed to production (pinned versions, release-train controlled)
 dependencies:
   - name: team-database
-    version: "1.1.10"
+    version: "1.1.12"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
   - name: team-cache
-    version: "1.0.6"
+    version: "1.0.7"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
   - name: team-pubsub
-    version: "1.0.7"
+    version: "1.0.8"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
   # The Runtime RGD (kind: Runtime) — the hub provisions runtime spokes. Release-train
   # controlled like the other production pins; promoted by bumping this version.
   - name: team-eks
-    version: "0.0.1"
+    version: "0.0.4"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
