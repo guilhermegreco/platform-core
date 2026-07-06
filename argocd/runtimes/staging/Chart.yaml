@@ -7,7 +7,7 @@ description: Platform capability RGDs deployed INTO a staging runtime spoke (pin
 # EventBus CRs locally. Pin-everywhere; promotion = bump these pins (release-train).
 dependencies:
   - name: team-database
-    version: "1.1.13"
+    version: "1.1.14"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"
   - name: team-cache
     version: "1.0.8"
