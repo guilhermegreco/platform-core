@@ -64,6 +64,21 @@ on:
         required: false
         type: boolean
         default: true
+      # Give real-infra-test a UNIQUE instance name per run (default OFF → the 3 data
+      # capabilities keep their fixed tier2 instance name). Needed by the EKS/Runtime
+      # capability: the ARGOCD capability creates an account-global, fixed-name IAM
+      # Identity Center *application*, and every capability CR is deletePropagationPolicy:
+      # RETAIN — so teardown does NOT delete the IdC app. With a FIXED instance name
+      # (ci-rt-test), the next run's ARGOCD capability collides with the orphaned IdC app
+      # → CREATE_FAILED → the capability never goes ACTIVE → the capability-argocd assert
+      # times out. Confirmed live: a uniquely-named spoke (rt-diag) provisions the argocd
+      # capability cleanly; the reused ci-rt-test name does not. Substituting a per-run
+      # name (ci-rt-<run_id>) sidesteps the orphan collision. (Roles/IdC apps still orphan
+      # under RETAIN, but never collide — a separate cleanup concern, tracked separately.)
+      unique-instance-name:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   lint:
@@ -140,6 +155,25 @@ jobs:
             echo "FAIL: Missing ${{ inputs.tests-path }}/cleanup.yaml"
             exit 1
           fi
+
+      # Rewrite the fixed tier2 instance name to a UNIQUE per-run name so this run's
+      # account-global fixed-name resources (esp. the ARGOCD capability's RETAIN'd IdC
+      # application) do not collide with orphans from prior runs. Opt-in; only the caller
+      # that sets unique-instance-name: true (the EKS/Runtime capability) is affected. All
+      # derived names are "<stem>-<suffix>" (e.g. ci-rt-test-argocd), so a single sed over
+      # instance.yaml + cleanup.yaml + assertions/*.yaml keeps every reference consistent.
+      - name: Uniquify instance name (opt-in)
+        if: ${{ inputs.unique-instance-name }}
+        run: |
+          OLD="ci-rt-test"
+          NEW="ci-rt-${{ github.run_id }}"
+          # EKS cluster names must be <=100 chars and the run_id keeps us well under; no trunc needed.
+          echo "Rewriting tier2 instance name: $OLD -> $NEW"
+          for f in ${{ inputs.tests-path }}/instance.yaml ${{ inputs.tests-path }}/cleanup.yaml ${{ inputs.tests-path }}/assertions/*.yaml; do
+            [ -f "$f" ] || continue
+            sed -i "s/${OLD}/${NEW}/g" "$f"
+          done
+          echo "--- rewritten instance.yaml ---"; cat ${{ inputs.tests-path }}/instance.yaml
 
       - name: Deploy RGD (previous from ECR, or current if first time)
         run: |
@@ -264,6 +298,25 @@ jobs:
 
       - name: "Phase 3: Verify assertions + cleanup"
         run: chainsaw test ${{ inputs.tests-path }}/ --test-file phase3-chainsaw-test
+
+      # On assertion failure, dump the instance + child resource status. ACK surfaces the
+      # real create error (an ARGOCD capability IdC-app collision, an sso: AccessDenied, an
+      # RDS param-group issue, …) in .status.health.issues / .status.conditions — which the
+      # kro pod logs do NOT show. Without this a failed real-infra run is undiagnosable
+      # (the cluster is torn down before anyone can inspect it). Plain job step (not inside
+      # the chainsaw heredoc) so shell vars like $k expand normally.
+      - name: "Phase 3: Dump resource status on failure"
+        if: failure()
+        run: |
+          echo "=== instance (${{ inputs.capability-name }}) ==="
+          kubectl get ${{ inputs.capability-name }} -A -o yaml || true
+          for k in capabilities.eks.services.k8s.aws clusters.eks.services.k8s.aws \
+                   dbinstances.rds.services.k8s.aws roles.iam.services.k8s.aws \
+                   policies.iam.services.k8s.aws securitygroups.ec2.services.k8s.aws \
+                   dbparametergroups.rds.services.k8s.aws; do
+            echo "=== $k ==="
+            kubectl get "$k" -A -o yaml 2>/dev/null || true
+          done
 
       - name: Force cleanup (safety net)
         if: always()
