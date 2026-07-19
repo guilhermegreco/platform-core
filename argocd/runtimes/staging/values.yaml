@@ -3,9 +3,17 @@
 team-database:
   defaults:
     clusterName: plat-cp-cluster
+    # Spoke shares the hub VPC (PoC). Must match the rebuilt staging hub VPC, else the
+    # SecurityGroup fails InvalidVpcID.NotFound against the chart's stale default vpcId.
+    vpcId: "vpc-0506818ccc9ca254c"
+    vpcCidr: "10.0.0.0/16"
+    dbSubnetGroupName: plat-cp-db-subnets
 team-cache:
   defaults:
     clusterName: plat-cp-cluster
+    vpcId: "vpc-0506818ccc9ca254c"
+    vpcCidr: "10.0.0.0/16"
+    cacheSubnetGroupName: plat-cp-cache-subnets
 team-pubsub:
   defaults:
     clusterName: plat-cp-cluster

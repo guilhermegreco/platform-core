@@ -3,9 +3,17 @@
 team-database:
   defaults:
     clusterName: plat-cp-prod-cluster
+    # Spoke shares the prod hub VPC (PoC). Must match the prod hub VPC, else the
+    # SecurityGroup fails InvalidVpcID.NotFound against the chart's stale default vpcId.
+    vpcId: "vpc-0c0cf7756830e935f"
+    vpcCidr: "10.0.0.0/16"
+    dbSubnetGroupName: plat-cp-prod-db-subnets
 team-cache:
   defaults:
     clusterName: plat-cp-prod-cluster
+    vpcId: "vpc-0c0cf7756830e935f"
+    vpcCidr: "10.0.0.0/16"
+    cacheSubnetGroupName: plat-cp-prod-cache-subnets
 team-pubsub:
   defaults:
     clusterName: plat-cp-prod-cluster
