@@ -1,15 +1,32 @@
 team-database:
   defaults:
-    clusterName: plat-cp-cluster
+    clusterName: plat-cp-prod-cluster
     engineVersion: "16.14"
-    dbSubnetGroupName: plat-cp-db-subnets
+    dbSubnetGroupName: plat-cp-prod-db-subnets
+    vpcId: "vpc-0c0cf7756830e935f"
+    vpcCidr: "10.0.0.0/16"
 
 team-cache:
   defaults:
-    clusterName: plat-cp-cluster
+    clusterName: plat-cp-prod-cluster
     engineVersion: "7.1"
-    cacheSubnetGroupName: plat-cp-cache-subnets
+    cacheSubnetGroupName: plat-cp-prod-cache-subnets
+    vpcId: "vpc-0c0cf7756830e935f"
+    vpcCidr: "10.0.0.0/16"
 
 team-pubsub:
   defaults:
-    clusterName: plat-cp-cluster
+    clusterName: plat-cp-prod-cluster
+
+# Runtime RGD topology for the PROD hub. subnetIDs = prod hub VPC private subnets.
+# hubArgocdRoleARN MUST be the PROD hub's ArgoCD capability role (not the staging default
+# baked into the team-eks chart) — it is the AccessEntry principal granted on each spoke so
+# the PROD hub's ArgoCD can deploy the platform layer into the spoke. accountId/region match
+# the shared account/region for the PoC.
+team-eks:
+  defaults:
+    subnetIDs:
+      - "subnet-00420c58b40bbad39"
+      - "subnet-0052ee641b2ebc4dc"
+      - "subnet-09bbea179be9c1d10"
+    hubArgocdRoleARN: "arn:aws:iam::279051970617:role/plat-cp-prod-capability-argocd"

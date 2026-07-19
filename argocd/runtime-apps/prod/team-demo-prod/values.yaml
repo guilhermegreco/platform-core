@@ -1,0 +1,40 @@
+# Developer app values — INTENT ONLY. Deployed by the runtime's OWN platform-apps
+# ApplicationSet; the SPOKE's own ArgoCD runs it. Platform topology
+# (accountId/region/clusterName/platform.ingress.*) is INJECTED from the spoke's
+# topology cluster Secret + derived per-namespace — do NOT set it here.
+#
+# The directory name == the namespace == the tenant namespace team-demo-prod
+# (onboarded by the Tenant CR in the umbrella). That alignment is what makes the
+# per-namespace IngressClass (team-demo-prod-alb) match this app's ingress.
+#
+# Full-loop demo: uses the real sample-app image (Flask, serves /ready + /db + /cache +
+# /events) published to ECR, and turns on database + route to exercise the entire
+# developer→platform→AWS path end-to-end in the spoke:
+#   - database.enabled → the chart renders a Database CR → kro/ACK provision real RDS in
+#     the spoke, and injects DATABASE_HOST/SECRET_ARN/... into the pod. The app's /db
+#     endpoint then connects to RDS and returns the PostgreSQL version. /ready also checks
+#     the DB, so the pod only goes Ready once RDS is reachable.
+#   - route.enabled → the chart renders an Ingress on the per-namespace IngressClass
+#     (team-demo-prod-alb) → EKS Auto Mode merges it onto one per-namespace ALB.
+name: sample-app
+team: demo
+image: 279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest
+port: 8080
+replicas: 2
+
+route:
+  enabled: true
+  path: ""          # defaults to /sample-app. readiness + ALB health hit :8080/ready
+                    # DIRECTLY on the pod (kubelet/target-type=ip), so Ready works
+                    # regardless of the prefix. The slice proves the per-namespace ALB
+                    # MERGE, not prefix routing (Auto Mode no-rewrite limitation).
+
+database:
+  enabled: true
+  size: small
+  engine: postgres
+
+cache:
+  enabled: false
+events:
+  enabled: false

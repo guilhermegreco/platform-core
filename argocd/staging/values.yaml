@@ -3,7 +3,7 @@ team-database:
     clusterName: plat-cp-cluster
     engineVersion: "16.14"
     dbSubnetGroupName: plat-cp-db-subnets
-    vpcId: "vpc-06de8f26bea8acbb5"
+    vpcId: "vpc-0506818ccc9ca254c"
     vpcCidr: "10.0.0.0/16"
 
 team-cache:
@@ -11,9 +11,19 @@ team-cache:
     clusterName: plat-cp-cluster
     engineVersion: "7.1"
     cacheSubnetGroupName: plat-cp-cache-subnets
-    vpcId: "vpc-06de8f26bea8acbb5"
+    vpcId: "vpc-0506818ccc9ca254c"
     vpcCidr: "10.0.0.0/16"
 
 team-pubsub:
   defaults:
     clusterName: plat-cp-cluster
+
+# The Runtime RGD's hub-specific topology (self-minted spoke IAM refs the current hub VPC's
+# private subnets; a hub rebuild = new subnet IDs). Overridden here at the umbrella layer so
+# no team-eks chart republish is needed on a hub rebuild.
+team-eks:
+  defaults:
+    subnetIDs:
+      - "subnet-03ac6860d54d28506"
+      - "subnet-0d972fcf351db27a5"
+      - "subnet-02ede75e771f5b296"

@@ -1,0 +1,96 @@
+{{- /*
+App loop, part 2/2 — the spoke's OWN platform-apps ApplicationSet.
+
+This is the runtime-side counterpart of argocd/apps/applicationset.yaml. The hub
+delivers it INTO the spoke's argocd namespace (via this umbrella), and the SPOKE's own
+ArgoCD capability runs it — closing the two-ArgoCD split: HUB ArgoCD delivers the
+platform layer; the RUNTIME's ArgoCD delivers developer apps locally.
+
+Identical mechanics to the hub appset (matrix of git files × clusters; multi-source
+Application; platform topology injected via helm.parameters so developers cannot
+override platform-owned keys), with two deliberate differences:
+  - clusters generator selects the local TOPOLOGY secret by `platform.io/topology: "true"`
+    (the §7 split — reads annotations without colliding on the in-cluster name).
+  - destination.name: in-cluster (deploy locally), regardless of the matched secret name.
+
+Developer app intent lives at argocd/runtime-apps/<env>/<app>/values.yaml (kept separate
+from the hub's argocd/apps/<env> so a runtime's app set is independent of the hub's).
+
+Gated on runtime.clusterArn (same as the secrets) so a bare `helm template` renders
+only the capability RGDs.
+*/}}
+{{- if .Values.runtime.clusterArn }}
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-apps
+  namespace: argocd
+  labels:
+    platform.io/capability: runtime
+    platform.io/workload: {{ .Values.runtime.clusterName | quote }}
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/guilhermegreco/platform-core
+              revision: HEAD
+              files:
+                - path: "argocd/runtime-apps/{{ .Values.runtime.environment }}/*/values.yaml"
+          - clusters:
+              selector:
+                matchLabels:
+                  platform.io/topology: "true"
+                  env: {{ .Values.runtime.environment | quote }}
+  template:
+    metadata:
+      name: "app-{{`{{.path.basename}}`}}-{{ .Values.runtime.environment }}"
+    spec:
+      project: default
+      sources:
+        # source 1: this repo, only to supply the developer values file via $values.
+        - repoURL: https://github.com/guilhermegreco/platform-core
+          targetRevision: HEAD
+          ref: values
+        # source 2: the platform-app chart from ECR (published by the pipeline).
+        - repoURL: "{{`{{index .metadata.annotations \"platform.io/account-id\"}}`}}.dkr.ecr.{{`{{index .metadata.annotations \"platform.io/region\"}}`}}.amazonaws.com/plat-cp/charts"
+          chart: platform-app
+          targetRevision: "0.0.*"
+          helm:
+            valueFiles:
+              - "$values/{{`{{.path.path}}`}}/values.yaml"
+            # Platform topology (from the topology cluster Secret) — wins over the file.
+            parameters:
+              - name: namespace
+                value: "{{`{{.path.basename}}`}}"
+              - name: accountId
+                value: "{{`{{index .metadata.annotations \"platform.io/account-id\"}}`}}"
+              - name: region
+                value: "{{`{{index .metadata.annotations \"platform.io/region\"}}`}}"
+              - name: clusterName
+                value: "{{`{{index .metadata.annotations \"platform.io/cluster-name\"}}`}}"
+              - name: platform.ingress.domain
+                value: "{{`{{index .metadata.annotations \"platform.io/ingress-domain\"}}`}}"
+              - name: platform.ingress.scheme
+                value: "{{`{{index .metadata.annotations \"platform.io/ingress-scheme\"}}`}}"
+              # className is DERIVED per-namespace, not taken from the spoke-wide topology
+              # annotation: the tenant RGD names each namespace's IngressClass
+              # team-<team>-<env>-alb, which equals "<namespace>-alb" (namespace =
+              # team-<team>-<env>). So every app in a tenant namespace references that
+              # namespace's own class → all its Ingresses merge onto ONE per-namespace ALB.
+              - name: platform.ingress.className
+                value: "{{`{{.path.basename}}`}}-alb"
+              - name: platform.ingress.groupPrefix
+                value: "{{`{{index .metadata.annotations \"platform.io/ingress-group-prefix\"}}`}}"
+      destination:
+        name: in-cluster
+        namespace: "{{`{{.path.basename}}`}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+{{- end }}

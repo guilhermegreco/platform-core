@@ -1,0 +1,37 @@
+{{- /*
+App loop, part 0 — onboard a demo team in the spoke.
+
+The tenant RGD (a dependency of this umbrella) expands a Tenant CR into the spoke's
+namespace(s) + per-namespace IngressClass/IngressClassParams (the ALB-grouping primitive)
++ ResourceQuota/RBAC/NetworkPolicy. The runtime's platform-apps ApplicationSet then
+deploys developer apps INTO those namespaces, and a route.enabled app references the
+per-namespace IngressClass this creates (team-<team>-<env>-alb).
+
+For the PoC we onboard one team ("demo") for this environment. The app's namespace
+(team-demo-<env>) and its IngressClass (team-demo-<env>-alb) are what the demo app's
+values + the appset's derived className point at.
+
+Gated on runtime.clusterArn (same as the rest of the app loop) so a bare `helm template`
+of the umbrella renders only the capability RGDs.
+*/}}
+{{- if .Values.runtime.clusterArn }}
+apiVersion: kro.run/v1alpha1
+kind: Tenant
+metadata:
+  name: demo
+  namespace: platform-system
+  annotations:
+    # ORDERING: the tenant RGD (this umbrella) and this Tenant CR ship together, but kro
+    # registers the Tenant CRD asynchronously AFTER reconciling the RGD. Two ArgoCD sync
+    # options make that safe:
+    #   - sync-wave "1": apply the RGDs (default wave 0) BEFORE this CR.
+    #   - SkipDryRunOnMissingResource: skip the dry-run that would otherwise fail with
+    #     `Tenant.kro.run "" not found` before the CRD exists; ArgoCD retries the apply
+    #     until kro has registered the CRD.
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  team: demo
+  environments:
+    - {{ .Values.runtime.environment | quote }}
+{{- end }}
