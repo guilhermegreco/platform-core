@@ -16,7 +16,13 @@
 #     the DB, so the pod only goes Ready once RDS is reachable.
 #   - route.enabled → the chart renders an Ingress on the per-namespace IngressClass
 #     (team-demo-prod-alb) → EKS Auto Mode merges it onto one per-namespace ALB.
-name: sample-app
+# NOTE: distinct from the staging demo's `sample-app` on purpose. The RGD derives the RDS
+# identifier as `${name}-db`, which is NOT cluster/namespace-qualified, so two spokes in the
+# SAME account+region with the same app name collide on the RDS identifier (staging's
+# sample-app-db already exists → prod's DBInstance stalls). Naming this tenant's app
+# sample-app-prod gives it sample-app-prod-db. FOLLOW-UP: cluster-qualify dbInstanceIdentifier
+# in the database RGD (breaking schema change) so same-named apps across spokes don't collide.
+name: sample-app-prod
 team: demo
 image: 279051970617.dkr.ecr.us-east-1.amazonaws.com/sample-app:latest
 port: 8080
