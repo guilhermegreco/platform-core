@@ -15,5 +15,5 @@ dependencies:
   # The Runtime RGD (kind: Runtime) — the hub provisions runtime spokes. Release-train
   # controlled like the other production pins; promoted by bumping this version.
   - name: team-eks
-    version: "0.0.4"
+    version: "0.0.12"
     repository: "oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts"

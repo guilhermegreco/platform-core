@@ -1,0 +1,15 @@
+dependencies:
+- name: team-database
+  repository: oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts
+  version: 1.1.15
+- name: team-cache
+  repository: oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts
+  version: 1.0.8
+- name: team-pubsub
+  repository: oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts
+  version: 1.0.8
+- name: team-eks
+  repository: oci://279051970617.dkr.ecr.us-east-1.amazonaws.com/plat-cp/charts
+  version: 0.0.12
+digest: sha256:673babc6f5ea79446f7ac13acfc237fcdcb8a5cbfffe209989f9d80a9c9198aa
+generated: "2026-07-19T00:02:25.351151-03:00"
